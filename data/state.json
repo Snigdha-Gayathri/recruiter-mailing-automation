@@ -1,11 +1,11 @@
 {
   "version": 1,
   "created_at": null,
-  "updated_at": "2026-08-24T11:22:18.926323+00:00",
+  "updated_at": "2026-08-24T11:33:10.726519+00:00",
   "contacts": {},
   "outreach": [],
   "statistics": {
-    "discovered": 110,
+    "discovered": 222,
     "qualified": 0,
     "emails_sent": 0,
     "emails_failed": 0
