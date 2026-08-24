@@ -6,9 +6,7 @@ import sys
 from pathlib import Path
 
 
-ROOT = Path(
-    __file__
-).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
 
 SRC = ROOT / "src"
 
@@ -21,17 +19,14 @@ if str(SRC) not in sys.path:
 
 from discovery.enrichment import enrich_recruiter
 from discovery.recruiters import (
+    RECRUITER_SEARCH_SEGMENTS,
     deduplicate_recruiters,
     normalize_recruiter,
     search_recruiters,
 )
-from matching.scorer import (
-    calculate_recruiter_match,
-)
+from matching.scorer import calculate_recruiter_match
 from outreach.gmail import send_email
-from outreach.personalization import (
-    generate_personalization,
-)
+from outreach.personalization import generate_personalization
 from outreach.templates import (
     choose_template,
     render_template,
@@ -72,25 +67,6 @@ MAX_APIFY_CALLS_PER_RUN = int(
 )
 
 
-RECRUITER_SEARCH_QUERIES = [
-    "Recruiter",
-    "Technical Recruiter",
-    "Engineering Recruiter",
-    "IT Recruiter",
-    "Talent Acquisition",
-    "Talent Acquisition Partner",
-    "Technology Recruiter",
-    "Technical Sourcer",
-]
-
-
-RECRUITER_SEARCH_LOCATIONS = [
-    "Bengaluru",
-    "Hyderabad",
-    "Mumbai",
-]
-
-
 SEARCH_STATE_PATH = (
     ROOT
     / "data"
@@ -103,16 +79,13 @@ def load_profile() -> dict:
         "r",
         encoding="utf-8",
     ) as file:
-        return json.load(
-            file
-        )
+        return json.load(file)
 
 
 def load_search_state() -> dict:
     if not SEARCH_STATE_PATH.exists():
         return {
-            "query_index": 0,
-            "location_index": 0,
+            "segment_index": 0,
             "runs": 0,
         }
 
@@ -127,31 +100,20 @@ def load_search_state() -> dict:
         json.JSONDecodeError,
     ):
         return {
-            "query_index": 0,
-            "location_index": 0,
+            "segment_index": 0,
             "runs": 0,
         }
 
-    if not isinstance(
-        data,
-        dict,
-    ):
+    if not isinstance(data, dict):
         return {
-            "query_index": 0,
-            "location_index": 0,
+            "segment_index": 0,
             "runs": 0,
         }
 
     return {
-        "query_index": int(
+        "segment_index": int(
             data.get(
-                "query_index",
-                0,
-            )
-        ),
-        "location_index": int(
-            data.get(
-                "location_index",
+                "segment_index",
                 0,
             )
         ),
@@ -198,9 +160,7 @@ def consume_apify_call(
             f"{MAX_APIFY_CALLS_PER_RUN}"
         )
 
-    state[
-        "_run_apify_calls"
-    ] = calls
+    state["_run_apify_calls"] = calls
 
     increment_stat(
         state,
@@ -233,40 +193,22 @@ def discover_recruiters(
     state: dict,
     search_state: dict,
 ) -> list[dict]:
-    query_index = (
-        search_state[
-            "query_index"
-        ]
+    segment_index = (
+        search_state.get(
+            "segment_index",
+            0,
+        )
+        % len(RECRUITER_SEARCH_SEGMENTS)
     )
 
-    location_index = (
-        search_state[
-            "location_index"
-        ]
-    )
-
-    query = (
-        RECRUITER_SEARCH_QUERIES[
-            query_index
-            % len(
-                RECRUITER_SEARCH_QUERIES
-            )
-        ]
-    )
-
-    location = (
-        RECRUITER_SEARCH_LOCATIONS[
-            location_index
-            % len(
-                RECRUITER_SEARCH_LOCATIONS
-            )
+    search_query, search_location = (
+        RECRUITER_SEARCH_SEGMENTS[
+            segment_index
         ]
     )
 
     print()
-    print(
-        "RECRUITER DISCOVERY"
-    )
+    print("RECRUITER DISCOVERY")
 
     print(
         "Recruiter search strategy: "
@@ -274,33 +216,31 @@ def discover_recruiters(
     )
 
     print(
-        f"Search query: {query}"
+        f"Search query: {search_query}"
     )
 
     print(
-        f"Search location: {location}"
+        f"Search location: "
+        f"{search_location}"
     )
 
     print(
-        f"Max recruiter records: 25"
+        "Max recruiter records: 25"
     )
 
     raw = search_recruiters(
         profile,
         max_results=25,
-        search_index=query_index,
+        search_query=search_query,
+        search_location=search_location,
     )
 
-    consume_apify_call(
-        state
-    )
+    consume_apify_call(state)
 
     recruiters = []
 
     for item in raw:
-        recruiter = normalize_recruiter(
-            item
-        )
+        recruiter = normalize_recruiter(item)
 
         recruiter = enrich_recruiter(
             recruiter
@@ -311,9 +251,7 @@ def discover_recruiters(
             recruiter,
         )
 
-        recruiters.append(
-            recruiter
-        )
+        recruiters.append(recruiter)
 
     recruiters = deduplicate_recruiters(
         recruiters
@@ -364,7 +302,7 @@ def qualify_recruiters(
     minimum_score = float(
         profile.get(
             "matching",
-            {}
+            {},
         ).get(
             "minimum_score",
             55,
@@ -429,9 +367,7 @@ def send_to_recruiter(
     profile: dict,
     state: dict,
 ) -> bool:
-    candidate = profile[
-        "candidate"
-    ]
+    candidate = profile["candidate"]
 
     template_name = choose_template(
         recruiter,
@@ -457,9 +393,7 @@ def send_to_recruiter(
 
     resume_path = (
         ROOT
-        / candidate[
-            "resume_path"
-        ]
+        / candidate["resume_path"]
     )
 
     if not resume_path.exists():
@@ -496,9 +430,7 @@ def send_to_recruiter(
 
     try:
         message_id = send_email(
-            recipient=recruiter[
-                "email"
-            ],
+            recipient=recruiter["email"],
             subject=subject,
             body=body,
             attachment_path=str(
@@ -525,9 +457,7 @@ def send_to_recruiter(
             "emails_sent",
         )
 
-        print(
-            "EMAIL SENT"
-        )
+        print("EMAIL SENT")
 
         print(
             f"Message ID: "
@@ -537,9 +467,7 @@ def send_to_recruiter(
         return True
 
     except Exception as exc:
-        print(
-            "EMAIL FAILED"
-        )
+        print("EMAIL FAILED")
 
         print(
             f"Reason: {exc}"
@@ -563,35 +491,21 @@ def send_to_recruiter(
 
 
 def main() -> None:
-    print(
-        "=" * 70
-    )
-
-    print(
-        "AI RECRUITER HUNTER"
-    )
-
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
+    print("AI RECRUITER HUNTER")
+    print("=" * 70)
 
     profile = load_profile()
 
     state = load_state()
 
-    state[
-        "_run_apify_calls"
-    ] = 0
+    state["_run_apify_calls"] = 0
 
-    increment_run(
-        state
-    )
+    increment_run(state)
 
     search_state = load_search_state()
 
-    candidate = profile[
-        "candidate"
-    ]
+    candidate = profile["candidate"]
 
     print(
         f"Candidate: "
@@ -614,9 +528,7 @@ def main() -> None:
         f"{MAX_APIFY_CALLS_PER_RUN}"
     )
 
-    jobs = get_cached_jobs(
-        state
-    )
+    jobs = get_cached_jobs(state)
 
     recruiters = discover_recruiters(
         profile,
@@ -645,9 +557,7 @@ def main() -> None:
         )
 
         for recruiter, match in qualified[:10]:
-            print(
-                "-" * 70
-            )
+            print("-" * 70)
 
             print(
                 f"{recruiter.get('name', 'Unknown')} "
@@ -695,35 +605,20 @@ def main() -> None:
                 state,
             )
 
-            save_state(
-                state
+            save_state(state)
+
+    search_state["segment_index"] = (
+        (
+            search_state.get(
+                "segment_index",
+                0,
             )
-
-    search_state[
-        "query_index"
-    ] = (
-        search_state[
-            "query_index"
-        ]
-        + 1
-    ) % len(
-        RECRUITER_SEARCH_QUERIES
+            + 1
+        )
+        % len(RECRUITER_SEARCH_SEGMENTS)
     )
 
-    search_state[
-        "location_index"
-    ] = (
-        search_state[
-            "location_index"
-        ]
-        + 1
-    ) % len(
-        RECRUITER_SEARCH_LOCATIONS
-    )
-
-    search_state[
-        "runs"
-    ] = (
+    search_state["runs"] = (
         search_state.get(
             "runs",
             0,
@@ -731,9 +626,7 @@ def main() -> None:
         + 1
     )
 
-    save_search_state(
-        search_state
-    )
+    save_search_state(search_state)
 
     calls = state.get(
         "_run_apify_calls",
@@ -752,22 +645,12 @@ def main() -> None:
         None,
     )
 
-    save_state(
-        state
-    )
+    save_state(state)
 
     print()
-    print(
-        "=" * 70
-    )
-
-    print(
-        "RUN COMPLETE"
-    )
-
-    print(
-        "=" * 70
-    )
+    print("=" * 70)
+    print("RUN COMPLETE")
+    print("=" * 70)
 
 
 if __name__ == "__main__":
