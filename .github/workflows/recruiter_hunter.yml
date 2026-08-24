@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: recruiter-hunter
+  cancel-in-progress: false
+
 jobs:
   recruiter-hunter:
     runs-on: ubuntu-latest
@@ -30,7 +34,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: data/state.json
-          key: recruiter-state-${{ github.ref_name }}-${{ github.run_id }}
+          key: recruiter-state-${{ github.ref_name }}
           restore-keys: |
             recruiter-state-${{ github.ref_name }}-
 
@@ -55,19 +59,15 @@ jobs:
           MAX_EMAILS_PER_RUN: "5"
           STATE_PATH: data/state.json
 
-        working-directory: src
-
         run: |
-          python main.py
+          python src/main.py
 
-      - name: Upload recruiter state
+      - name: Save recruiter state to cache
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/cache/save@v4
         with:
-          name: recruiter-state-${{ github.run_id }}
           path: data/state.json
-          if-no-files-found: ignore
-          retention-days: 90
+          key: recruiter-state-${{ github.ref_name }}-${{ github.run_id }}
 
       - name: Commit updated state
         if: success()
