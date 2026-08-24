@@ -2,356 +2,190 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
-STATE_PATH = Path(
-    os.getenv(
-        "STATE_PATH",
-        "data/state.json",
+DEFAULT_STATE = {
+    "contacted_emails": [],
+    "contacted_linkedin_urls": [],
+    "seen_recruiters": [],
+    "templates_used": {},
+    "runs": 0,
+    "emails_sent": 0,
+}
+
+
+def _state_path() -> Path:
+    return Path(
+        os.getenv(
+            "STATE_PATH",
+            "data/state.json",
+        )
     )
-)
-
-
-def utc_now() -> str:
-    return datetime.now(
-        timezone.utc
-    ).isoformat()
-
-
-def default_state() -> dict[str, Any]:
-    return {
-        "version": 2,
-        "created_at": utc_now(),
-        "updated_at": utc_now(),
-
-        "contacts": {},
-
-        "outreach": [],
-
-        "job_cache": {
-            "updated_at": None,
-            "jobs": [],
-        },
-
-        "statistics": {
-            "discovered": 0,
-            "qualified": 0,
-            "emails_sent": 0,
-            "emails_failed": 0,
-            "apify_calls": 0,
-        },
-    }
 
 
 def load_state() -> dict[str, Any]:
-    STATE_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    path = _state_path()
 
-    if not STATE_PATH.exists():
-        return default_state()
+    if not path.exists():
+        return dict(DEFAULT_STATE)
 
     try:
-        with STATE_PATH.open(
-            "r",
-            encoding="utf-8",
-        ) as file:
-            state = json.load(file)
-
-        if not isinstance(
-            state,
-            dict,
-        ):
-            return default_state()
-
-        state.setdefault(
-            "contacts",
-            {},
+        data = json.loads(
+            path.read_text(
+                encoding="utf-8"
+            )
         )
-
-        state.setdefault(
-            "outreach",
-            [],
-        )
-
-        state.setdefault(
-            "statistics",
-            {},
-        )
-
-        state.setdefault(
-            "job_cache",
-            {
-                "updated_at": None,
-                "jobs": [],
-            },
-        )
-
-        return state
-
     except (
-        json.JSONDecodeError,
         OSError,
+        json.JSONDecodeError,
     ):
-        return default_state()
+        return dict(DEFAULT_STATE)
+
+    if not isinstance(data, dict):
+        return dict(DEFAULT_STATE)
+
+    state = dict(DEFAULT_STATE)
+    state.update(data)
+
+    return state
 
 
 def save_state(
     state: dict[str, Any],
 ) -> None:
-    STATE_PATH.parent.mkdir(
+    path = _state_path()
+
+    path.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    state["updated_at"] = utc_now()
-
-    temporary_path = (
-        STATE_PATH.with_suffix(
-            ".tmp"
-        )
-    )
-
-    with temporary_path.open(
-        "w",
-        encoding="utf-8",
-    ) as file:
-        json.dump(
+    path.write_text(
+        json.dumps(
             state,
-            file,
             indent=2,
             ensure_ascii=False,
-        )
-
-    temporary_path.replace(
-        STATE_PATH
+        ),
+        encoding="utf-8",
     )
 
 
-def contact_key(
-    recruiter: dict[str, Any],
-) -> str:
-    email = str(
-        recruiter.get(
-            "email",
-            "",
-        )
-    ).strip().lower()
-
-    if email:
-        return f"email:{email}"
-
-    linkedin = str(
-        recruiter.get(
-            "linkedin_url",
-            "",
-        )
-    ).strip().lower()
-
-    if linkedin:
-        return (
-            f"linkedin:{linkedin}"
-        )
-
-    name = str(
-        recruiter.get(
-            "name",
-            "",
-        )
-    ).strip().lower()
-
-    company = str(
-        recruiter.get(
-            "company",
-            "",
-        )
-    ).strip().lower()
-
-    return (
-        f"name:{name}|company:{company}"
-    )
-
-
-def has_been_contacted(
+def increment_run(
     state: dict[str, Any],
-    recruiter: dict[str, Any],
-) -> bool:
-    key = contact_key(
-        recruiter
-    )
-
-    contact = (
-        state
-        .get(
-            "contacts",
-            {},
-        )
-        .get(key)
-    )
-
-    if not contact:
-        return False
-
-    return contact.get(
-        "status"
-    ) == "sent"
-
-
-def record_contact(
-    state: dict[str, Any],
-    recruiter: dict[str, Any],
-    template: str,
-    subject: str,
-    message_id: str | None,
-    status: str,
 ) -> None:
-    key = contact_key(
-        recruiter
+    state["runs"] = int(
+        state.get("runs", 0)
+    ) + 1
+
+
+def mark_recruiter_seen(
+    state: dict[str, Any],
+    recruiter: dict[str, Any],
+) -> None:
+    url = (
+        recruiter.get("linkedinUrl")
+        or recruiter.get("publicIdentifier")
+        or recruiter.get("id")
     )
 
-    state.setdefault(
-        "contacts",
-        {},
-    )
+    if not url:
+        return
 
-    state["contacts"][key] = {
-        "name": recruiter.get(
-            "name"
-        ),
-        "email": recruiter.get(
-            "email"
-        ),
-        "company": recruiter.get(
-            "company"
-        ),
-        "linkedin_url": recruiter.get(
-            "linkedin_url"
-        ),
-        "template": template,
-        "subject": subject,
-        "message_id": message_id,
-        "status": status,
-        "updated_at": utc_now(),
-    }
-
-    state.setdefault(
-        "outreach",
+    seen = state.setdefault(
+        "seen_recruiters",
         [],
     )
 
-    state["outreach"].append(
-        {
-            "timestamp": utc_now(),
-            "contact_key": key,
-            "email": recruiter.get(
-                "email"
-            ),
-            "company": recruiter.get(
-                "company"
-            ),
-            "template": template,
-            "subject": subject,
-            "message_id": message_id,
-            "status": status,
-        }
+    if url not in seen:
+        seen.append(url)
+
+
+def recruiter_has_been_contacted(
+    state: dict[str, Any],
+    recruiter: dict[str, Any],
+) -> bool:
+    email = (
+        recruiter.get("_match", {}).get("email")
+        or recruiter.get("email")
+        or ""
     )
 
+    linkedin_url = (
+        recruiter.get("linkedinUrl")
+        or ""
+    )
 
-def increment_stat(
+    contacted_emails = {
+        str(value).lower()
+        for value in state.get(
+            "contacted_emails",
+            [],
+        )
+    }
+
+    contacted_linkedin = {
+        str(value).lower()
+        for value in state.get(
+            "contacted_linkedin_urls",
+            [],
+        )
+    }
+
+    if email and str(email).lower() in contacted_emails:
+        return True
+
+    if (
+        linkedin_url
+        and str(linkedin_url).lower()
+        in contacted_linkedin
+    ):
+        return True
+
+    return False
+
+
+def mark_contacted(
     state: dict[str, Any],
-    key: str,
-    amount: int = 1,
+    recruiter: dict[str, Any],
 ) -> None:
-    statistics = state.setdefault(
-        "statistics",
+    email = (
+        recruiter.get("_match", {}).get("email")
+        or recruiter.get("email")
+    )
+
+    linkedin_url = recruiter.get(
+        "linkedinUrl"
+    )
+
+    if email:
+        state.setdefault(
+            "contacted_emails",
+            [],
+        ).append(email)
+
+    if linkedin_url:
+        state.setdefault(
+            "contacted_linkedin_urls",
+            [],
+        ).append(linkedin_url)
+
+    state["emails_sent"] = int(
+        state.get("emails_sent", 0)
+    ) + 1
+
+
+def record_template_usage(
+    state: dict[str, Any],
+    template_name: str,
+) -> None:
+    templates = state.setdefault(
+        "templates_used",
         {},
     )
 
-    statistics[key] = (
-        statistics.get(
-            key,
-            0,
-        )
-        + amount
+    templates[template_name] = (
+        int(templates.get(template_name, 0))
+        + 1
     )
-
-
-def job_cache_is_fresh(
-    state: dict[str, Any],
-    ttl_hours: int,
-) -> bool:
-    updated_at = (
-        state
-        .get(
-            "job_cache",
-            {},
-        )
-        .get(
-            "updated_at"
-        )
-    )
-
-    jobs = (
-        state
-        .get(
-            "job_cache",
-            {},
-        )
-        .get(
-            "jobs",
-            []
-        )
-    )
-
-    if not updated_at or not jobs:
-        return False
-
-    try:
-        updated = datetime.fromisoformat(
-            updated_at
-        )
-
-        age = (
-            datetime.now(
-                timezone.utc
-            )
-            - updated
-        )
-
-        return (
-            age.total_seconds()
-            < ttl_hours * 3600
-        )
-
-    except ValueError:
-        return False
-
-
-def get_cached_jobs(
-    state: dict[str, Any],
-) -> list[dict[str, Any]]:
-    return (
-        state
-        .get(
-            "job_cache",
-            {},
-        )
-        .get(
-            "jobs",
-            []
-        )
-    )
-
-
-def set_job_cache(
-    state: dict[str, Any],
-    jobs: list[dict[str, Any]],
-) -> None:
-    state["job_cache"] = {
-        "updated_at": utc_now(),
-        "jobs": jobs,
-    }
