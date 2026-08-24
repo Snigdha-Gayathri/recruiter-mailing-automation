@@ -19,6 +19,7 @@ RECRUITER_SEARCH_QUERIES = [
     "Talent Acquisition",
     "Talent Acquisition Partner",
     "Talent Acquisition Specialist",
+    "Technology Recruiter",
     "Technical Sourcer",
     "Talent Sourcer",
 ]
@@ -26,8 +27,43 @@ RECRUITER_SEARCH_QUERIES = [
 
 TARGET_LOCATIONS = [
     "Bengaluru",
-    "Mumbai",
     "Hyderabad",
+    "Mumbai",
+    "Bangalore",
+    "Remote",
+]
+
+
+RECRUITER_SEARCH_SEGMENTS = [
+    ("Recruiter", "Bengaluru"),
+    ("Recruiter", "Hyderabad"),
+    ("Recruiter", "Mumbai"),
+    ("Recruiter", "Bangalore"),
+    ("Recruiter", "Remote"),
+    ("Technical Recruiter", "Bengaluru"),
+    ("Technical Recruiter", "Hyderabad"),
+    ("Technical Recruiter", "Mumbai"),
+    ("Engineering Recruiter", "Bengaluru"),
+    ("Engineering Recruiter", "Hyderabad"),
+    ("Engineering Recruiter", "Mumbai"),
+    ("IT Recruiter", "Bengaluru"),
+    ("IT Recruiter", "Hyderabad"),
+    ("IT Recruiter", "Mumbai"),
+    ("Talent Acquisition", "Bengaluru"),
+    ("Talent Acquisition", "Hyderabad"),
+    ("Talent Acquisition", "Mumbai"),
+    ("Talent Acquisition Partner", "Bengaluru"),
+    ("Talent Acquisition Partner", "Hyderabad"),
+    ("Talent Acquisition Partner", "Mumbai"),
+    ("Technology Recruiter", "Bengaluru"),
+    ("Technology Recruiter", "Hyderabad"),
+    ("Technology Recruiter", "Mumbai"),
+    ("Technical Sourcer", "Bengaluru"),
+    ("Technical Sourcer", "Hyderabad"),
+    ("Technical Sourcer", "Mumbai"),
+    ("Talent Sourcer", "Bengaluru"),
+    ("Talent Sourcer", "Hyderabad"),
+    ("Talent Sourcer", "Mumbai"),
 ]
 
 
@@ -294,9 +330,7 @@ def normalize_recruiter(
         if value
     ).strip()
 
-    position = _get_current_position(
-        profile
-    )
+    position = _get_current_position(profile)
 
     return {
         **profile,
@@ -356,24 +390,13 @@ def deduplicate_recruiters(
 def score_recruiter(
     profile: dict[str, Any],
 ) -> dict[str, Any]:
-    recruiter = normalize_recruiter(
-        profile
-    )
+    recruiter = normalize_recruiter(profile)
 
-    text = _flatten_profile(
-        recruiter
-    )
-
-    title = _normalise(
-        recruiter["title"]
-    )
-
-    location = _normalise(
-        recruiter["location"]
-    )
+    text = _flatten_profile(recruiter)
+    title = _normalise(recruiter["title"])
+    location = _normalise(recruiter["location"])
 
     score = 0.0
-
     reasons: list[str] = []
 
     title_hits = _contains_any(
@@ -386,9 +409,7 @@ def score_recruiter(
 
         reasons.append(
             "Recruiting title: "
-            + ", ".join(
-                title_hits[:3]
-            )
+            + ", ".join(title_hits[:3])
         )
 
     technical_hits = _contains_any(
@@ -404,9 +425,7 @@ def score_recruiter(
     if technical_hits:
         reasons.append(
             "Technical hiring signals: "
-            + ", ".join(
-                technical_hits[:5]
-            )
+            + ", ".join(technical_hits[:5])
         )
 
     target_hits = _contains_any(
@@ -422,9 +441,7 @@ def score_recruiter(
     if target_hits:
         reasons.append(
             "Target-role signals: "
-            + ", ".join(
-                target_hits[:5]
-            )
+            + ", ".join(target_hits[:5])
         )
 
     if any(
@@ -432,19 +449,13 @@ def score_recruiter(
         for city in TARGET_LOCATIONS
     ):
         score += 10
-
-        reasons.append(
-            "Target Indian location"
-        )
+        reasons.append("Target location")
 
     email = recruiter["email"]
 
     if email:
         score += 10
-
-        reasons.append(
-            "Email available"
-        )
+        reasons.append("Email available")
 
     irrelevant_hits = _contains_any(
         text,
@@ -459,16 +470,11 @@ def score_recruiter(
 
         reasons.append(
             "Irrelevant-domain signals: "
-            + ", ".join(
-                irrelevant_hits[:4]
-            )
+            + ", ".join(irrelevant_hits[:4])
         )
 
-    if profile.get(
-        "recentlyPostedOnLinkedIn"
-    ):
+    if profile.get("recentlyPostedOnLinkedIn"):
         score += 5
-
         reasons.append(
             "Recently active on LinkedIn"
         )
@@ -496,20 +502,13 @@ def is_qualified_recruiter(
     profile: dict[str, Any],
     minimum_score: float = 45.0,
 ) -> bool:
-    result = score_recruiter(
-        profile
-    )
+    result = score_recruiter(profile)
 
     if result["score"] < minimum_score:
         return False
 
-    title = _normalise(
-        result["title"]
-    )
-
-    text = _flatten_profile(
-        profile
-    )
+    title = _normalise(result["title"])
+    text = _flatten_profile(profile)
 
     has_recruiter_signal = bool(
         _contains_any(
@@ -565,17 +564,13 @@ def qualify_recruiters(
         ):
             continue
 
-        recruiter = normalize_recruiter(
-            profile
-        )
+        recruiter = normalize_recruiter(profile)
 
         recruiter["_match"] = score_recruiter(
             profile
         )
 
-        qualified.append(
-            recruiter
-        )
+        qualified.append(recruiter)
 
     qualified.sort(
         key=lambda item: item["_match"]["score"],
@@ -590,9 +585,7 @@ def _run_apify_actor(
     actor_input: dict[str, Any],
     timeout_seconds: int = 120,
 ) -> list[dict[str, Any]]:
-    token = os.getenv(
-        "APIFY_API_TOKEN"
-    )
+    token = os.getenv("APIFY_API_TOKEN")
 
     if not token:
         raise RuntimeError(
@@ -602,10 +595,7 @@ def _run_apify_actor(
     encoded_actor_id = (
         actor_id
         .strip()
-        .replace(
-            "/",
-            "~",
-        )
+        .replace("/", "~")
     )
 
     response = requests.post(
@@ -652,19 +642,13 @@ def _run_apify_actor(
 
     items = dataset_response.json()
 
-    if not isinstance(
-        items,
-        list,
-    ):
+    if not isinstance(items, list):
         return []
 
     return [
         item
         for item in items
-        if isinstance(
-            item,
-            dict,
-        )
+        if isinstance(item, dict)
     ]
 
 
@@ -672,100 +656,63 @@ def search_recruiters(
     candidate_profile: dict[str, Any],
     max_results: int = 25,
     search_index: int = 0,
+    search_query: str | None = None,
+    search_location: str | None = None,
 ) -> list[dict[str, Any]]:
+    """
+    Perform exactly one Apify recruiter search.
+
+    search_query and search_location are explicit so the caller
+    cannot accidentally select a query from one state index and
+    a location from another.
+    """
+
     actor_id = os.getenv(
         "APIFY_RECRUITER_ACTOR",
         DEFAULT_ACTOR_ID,
     )
 
-    query = os.getenv(
-        "RECRUITER_SEARCH_QUERY",
-        RECRUITER_SEARCH_QUERIES[
-            search_index
-            % len(
-                RECRUITER_SEARCH_QUERIES
-            )
-        ],
-    )
-
-    location = TARGET_LOCATIONS[
-        search_index
-        % len(
-            TARGET_LOCATIONS
+    if search_query is None:
+        search_query = (
+            RECRUITER_SEARCH_QUERIES[
+                search_index
+                % len(RECRUITER_SEARCH_QUERIES)
+            ]
         )
-    ]
+
+    if search_location is None:
+        search_location = (
+            TARGET_LOCATIONS[
+                search_index
+                % len(TARGET_LOCATIONS)
+            ]
+        )
 
     print(
-        "RECRUITER DISCOVERY"
+        f"Using Apify actor: {actor_id}"
     )
 
-    print(
-        "Recruiter search strategy: "
-        "ONE Apify call"
-    )
-
-    print(
-        f"Search query: {query}"
-    )
-
-    print(
-        f"Search location: {location}"
-    )
-
-    print(
-        f"Max recruiter records: "
-        f"{max_results}"
-    )
-
-    print(
-        f"Using Apify actor: "
-        f"{actor_id}"
-    )
-
-    # IMPORTANT:
-    # These are intentionally the simple fields that
-    # previously produced actual recruiter records.
-    #
-    # Do NOT add restrictive undocumented filters here.
     actor_input = {
         "profileScraperMode": (
             "Full + email search"
         ),
-        "searchQuery": query,
-        "locations": [
-            location
-        ],
+        "searchQuery": search_query,
+        "locations": [search_location],
         "maxItems": max_results,
         "startPage": 1,
         "takePages": 1,
     }
 
-    print(
-        "Apify input:"
-    )
+    print("Apify input:")
+    print(actor_input)
 
-    print(
-        actor_input
-    )
-
-    profiles = _run_apify_actor(
+    results = _run_apify_actor(
         actor_id=actor_id,
         actor_input=actor_input,
     )
 
     print(
-        f"Results: {len(profiles)}"
+        f"Results: {len(results)}"
     )
 
-    unique_profiles = (
-        deduplicate_recruiters(
-            profiles
-        )
-    )
-
-    print(
-        f"Unique recruiters: "
-        f"{len(unique_profiles)}"
-    )
-
-    return unique_profiles
+    return results
