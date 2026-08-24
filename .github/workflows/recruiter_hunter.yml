@@ -1,1 +1,89 @@
+name: AI Recruiter Hunter
 
+on:
+  schedule:
+    - cron: "0 * * * *"
+
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  recruiter-hunter:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore recruiter state
+        uses: actions/cache/restore@v4
+        with:
+          path: data/state.json
+          key: recruiter-state-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            recruiter-state-${{ github.ref_name }}-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run recruiter hunter
+        env:
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+          APIFY_RECRUITER_ACTOR: ${{ secrets.APIFY_RECRUITER_ACTOR }}
+
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: ${{ secrets.GROQ_MODEL }}
+
+          MAX_EMAILS_PER_RUN: "5"
+          STATE_PATH: data/state.json
+
+        working-directory: src
+
+        run: |
+          python main.py
+
+      - name: Upload recruiter state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recruiter-state-${{ github.run_id }}
+          path: data/state.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Commit updated state
+        if: success()
+        run: |
+          if [ -f data/state.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git add data/state.json
+
+            if git diff --cached --quiet; then
+              echo "No state changes to commit."
+            else
+              git commit -m "chore: update recruiter outreach state"
+              git push
+            fi
+          else
+            echo "No state file was generated."
+          fi
