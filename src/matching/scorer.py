@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -10,6 +11,7 @@ TARGET_LOCATIONS = {
     "hyderabad",
     "remote",
 }
+
 
 TARGET_ROLE_KEYWORDS = {
     "ai engineer",
@@ -27,7 +29,10 @@ TARGET_ROLE_KEYWORDS = {
     "deep learning",
     "nlp",
     "mlops",
+    "llm",
+    "rag",
 }
+
 
 TECHNOLOGY_KEYWORDS = {
     "python",
@@ -44,192 +49,601 @@ TECHNOLOGY_KEYWORDS = {
     "neo4j",
     "fastapi",
     "docker",
+    "bm25",
+    "reranking",
+    "cross-encoder",
 }
 
 
-def _normalise(value: Any) -> str:
+RECRUITER_KEYWORDS = {
+    "recruiter",
+    "recruiting",
+    "talent acquisition",
+    "talent partner",
+    "talent sourcer",
+    "sourcer",
+    "headhunter",
+    "recruitment",
+}
+
+
+IRRELEVANT_KEYWORDS = {
+    "construction",
+    "architecture",
+    "civil engineer",
+    "nurse",
+    "nursing",
+    "clinical",
+    "healthcare recruitment",
+    "hospitality",
+    "hotel",
+    "real estate",
+    "building materials",
+}
+
+
+@dataclass
+class RecruiterMatch:
+    score: float
+    recommendation: str
+    recruiter: dict[str, Any]
+    matching_jobs: list[dict[str, Any]] = field(
+        default_factory=list
+    )
+    role_matches: list[str] = field(
+        default_factory=list
+    )
+    skill_matches: list[str] = field(
+        default_factory=list
+    )
+    project_matches: list[str] = field(
+        default_factory=list
+    )
+    reasons: list[str] = field(
+        default_factory=list
+    )
+
+
+def _normalise(
+    value: Any,
+) -> str:
     if value is None:
         return ""
 
-    return str(value).lower().strip()
+    return str(
+        value
+    ).lower().strip()
 
 
-def _flatten(value: Any) -> str:
+def _flatten(
+    value: Any,
+) -> str:
     if value is None:
         return ""
 
-    if isinstance(value, str):
+    if isinstance(
+        value,
+        str,
+    ):
         return value.lower()
 
-    if isinstance(value, dict):
+    if isinstance(
+        value,
+        dict,
+    ):
         return " ".join(
             _flatten(item)
             for item in value.values()
         )
 
-    if isinstance(value, list):
+    if isinstance(
+        value,
+        list,
+    ):
         return " ".join(
             _flatten(item)
             for item in value
         )
 
-    return str(value).lower()
+    return str(
+        value
+    ).lower()
 
 
-def _contains_any(
+def _contains(
     text: str,
     keywords: set[str],
-) -> int:
-    return sum(
-        keyword in text
+) -> list[str]:
+    return [
+        keyword
         for keyword in keywords
+        if keyword in text
+    ]
+
+
+def _job_company(
+    job: dict[str, Any],
+) -> str:
+    company = job.get(
+        "company"
     )
 
-
-def _job_location(job: dict[str, Any]) -> str:
-    location = job.get("location")
-
-    if isinstance(location, dict):
+    if isinstance(
+        company,
+        dict,
+    ):
         return _normalise(
-            location.get("name")
-            or location.get("city")
-            or location.get("text")
-        )
-
-    return _normalise(location)
-
-
-def _job_company(job: dict[str, Any]) -> str:
-    company = job.get("company")
-
-    if isinstance(company, dict):
-        return _normalise(
-            company.get("name")
-            or company.get("companyName")
+            company.get(
+                "name"
+            )
+            or company.get(
+                "companyName"
+            )
         )
 
     return _normalise(
-        job.get("companyName")
+        job.get(
+            "companyName"
+        )
         or company
     )
 
 
-def score_recruiter_job(
-    recruiter: dict[str, Any],
+def _job_location(
     job: dict[str, Any],
-) -> float:
-    recruiter_text = _flatten(recruiter)
-    job_text = _flatten(job)
+) -> str:
+    location = job.get(
+        "location"
+    )
 
-    score = 0.0
-
-    recruiter_match = recruiter.get("_match") or {}
-
-    if isinstance(recruiter_match, dict):
-        score += min(
-            35.0,
-            float(
-                recruiter_match.get("score", 0)
-            ) * 0.35,
+    if isinstance(
+        location,
+        dict,
+    ):
+        return _normalise(
+            location.get(
+                "name"
+            )
+            or location.get(
+                "city"
+            )
+            or location.get(
+                "text"
+            )
         )
 
-    recruiter_role_hits = _contains_any(
-        recruiter_text,
+    return _normalise(
+        location
+    )
+
+
+def _company_matches(
+    recruiter: dict[str, Any],
+    job: dict[str, Any],
+) -> bool:
+    recruiter_company = _normalise(
+        recruiter.get(
+            "company"
+        )
+    )
+
+    job_company = _job_company(
+        job
+    )
+
+    if not recruiter_company or not job_company:
+        return False
+
+    return (
+        recruiter_company == job_company
+        or recruiter_company in job_company
+        or job_company in recruiter_company
+    )
+
+
+def _profile_role_hits(
+    recruiter: dict[str, Any],
+) -> list[str]:
+    return _contains(
+        _flatten(
+            recruiter
+        ),
         TARGET_ROLE_KEYWORDS,
     )
 
-    job_role_hits = _contains_any(
-        job_text,
+
+def _job_role_hits(
+    job: dict[str, Any],
+) -> list[str]:
+    return _contains(
+        _flatten(
+            job
+        ),
         TARGET_ROLE_KEYWORDS,
     )
 
-    technology_hits = _contains_any(
-        recruiter_text + " " + job_text,
+
+def _job_skill_hits(
+    job: dict[str, Any],
+) -> list[str]:
+    return _contains(
+        _flatten(
+            job
+        ),
         TECHNOLOGY_KEYWORDS,
     )
 
-    score += min(
-        20.0,
-        recruiter_role_hits * 5,
+
+def _candidate_skill_hits(
+    profile: dict[str, Any],
+    text: str,
+) -> list[str]:
+    hits = _contains(
+        text,
+        TECHNOLOGY_KEYWORDS,
     )
 
-    score += min(
-        25.0,
-        job_role_hits * 5,
+    skills = profile.get(
+        "skills",
+        {},
     )
 
-    score += min(
-        10.0,
-        technology_hits * 1.5,
+    if isinstance(
+        skills,
+        dict,
+    ):
+        skill_text = _flatten(
+            skills
+        )
+
+        hits.extend(
+            _contains(
+                skill_text,
+                TECHNOLOGY_KEYWORDS,
+            )
+        )
+
+    return sorted(
+        set(hits)
     )
 
-    recruiter_company = _normalise(
-        recruiter.get("_match", {}).get(
-            "company",
-            "",
+
+def calculate_recruiter_match(
+    recruiter: dict[str, Any],
+    jobs: list[dict[str, Any]],
+    profile: dict[str, Any],
+    minimum_score: float | None = None,
+) -> RecruiterMatch:
+    recruiter_text = _flatten(
+        recruiter
+    )
+
+    title = _normalise(
+        recruiter.get(
+            "title"
         )
     )
 
-    job_company = _job_company(job)
+    email = _normalise(
+        recruiter.get(
+            "email"
+        )
+    )
 
-    if recruiter_company and job_company:
-        if (
-            recruiter_company in job_company
-            or job_company in recruiter_company
-        ):
-            score += 20.0
+    recruiter_roles = _profile_role_hits(
+        recruiter
+    )
 
-    job_location = _job_location(job)
+    technical_hits = _contains(
+        recruiter_text,
+        TECHNOLOGY_KEYWORDS,
+    )
+
+    irrelevant_hits = _contains(
+        recruiter_text,
+        IRRELEVANT_KEYWORDS,
+    )
+
+    score = 0.0
+    reasons: list[str] = []
 
     if any(
-        location in job_location
-        for location in TARGET_LOCATIONS
+        keyword in title
+        for keyword in RECRUITER_KEYWORDS
     ):
-        score += 5.0
+        score += 25
+        reasons.append(
+            "Direct recruiting or talent-acquisition title."
+        )
+    else:
+        return RecruiterMatch(
+            score=0.0,
+            recommendation="REJECT",
+            recruiter=recruiter,
+            reasons=[
+                "No direct recruiter or talent-acquisition signal."
+            ],
+        )
 
-    return round(
-        min(100.0, score),
+    if recruiter_roles:
+        score += min(
+            25,
+            len(
+                recruiter_roles
+            ) * 5,
+        )
+
+        reasons.append(
+            "AI/ML target-role signals found in recruiter profile."
+        )
+
+    if technical_hits:
+        score += min(
+            15,
+            len(
+                technical_hits
+            ) * 2.5,
+        )
+
+        reasons.append(
+            "Technical hiring signals found."
+        )
+
+    location = _normalise(
+        recruiter.get(
+            "location"
+        )
+    )
+
+    if any(
+        target in location
+        for target in TARGET_LOCATIONS
+    ):
+        score += 10
+        reasons.append(
+            "Recruiter is in a target location."
+        )
+
+    if email:
+        score += 15
+        reasons.append(
+            "Direct email is available."
+        )
+
+    if irrelevant_hits:
+        penalty = min(
+            50,
+            len(
+                irrelevant_hits
+            ) * 15,
+        )
+
+        score -= penalty
+
+        reasons.append(
+            "Irrelevant-domain signals found."
+        )
+
+    matching_jobs = [
+        job
+        for job in jobs
+        if _company_matches(
+            recruiter,
+            job,
+        )
+    ]
+
+    if matching_jobs:
+        score += 20
+
+        reasons.append(
+            "Recruiter's company has a matching cached job."
+        )
+
+        best_job = max(
+            matching_jobs,
+            key=lambda job: (
+                len(
+                    _job_role_hits(
+                        job
+                    )
+                ),
+                len(
+                    _job_skill_hits(
+                        job
+                    )
+                ),
+            ),
+        )
+
+        job_roles = _job_role_hits(
+            best_job
+        )
+
+        job_skills = _job_skill_hits(
+            best_job
+        )
+
+        if job_roles:
+            score += min(
+                15,
+                len(
+                    job_roles
+                ) * 4,
+            )
+
+            reasons.append(
+                "Company job matches target AI/ML roles."
+            )
+
+        if job_skills:
+            score += min(
+                10,
+                len(
+                    job_skills
+                ) * 1.5,
+            )
+
+            reasons.append(
+                "Company job matches candidate technologies."
+            )
+
+    else:
+        best_job = None
+        job_roles = []
+        job_skills = []
+
+    score = round(
+        max(
+            0.0,
+            min(
+                100.0,
+                score,
+            ),
+        ),
         2,
+    )
+
+    threshold = (
+        minimum_score
+        if minimum_score is not None
+        else float(
+            profile.get(
+                "matching",
+                {}
+            ).get(
+                "minimum_score",
+                55,
+            )
+        )
+    )
+
+    recommendation = (
+        "OUTREACH"
+        if (
+            score >= threshold
+            and bool(email)
+        )
+        else "REJECT"
+    )
+
+    project_matches: list[str] = []
+
+    projects = profile.get(
+        "projects",
+        [],
+    )
+
+    company_job_text = _flatten(
+        best_job
+    )
+
+    for project in projects:
+        if not isinstance(
+            project,
+            dict,
+        ):
+            continue
+
+        keywords = project.get(
+            "keywords",
+            [],
+        )
+
+        if any(
+            _normalise(
+                keyword
+            ) in company_job_text
+            for keyword in keywords
+        ):
+            project_matches.append(
+                str(
+                    project.get(
+                        "name",
+                        "",
+                    )
+                )
+            )
+
+    if not project_matches:
+        ordered_projects = sorted(
+            [
+                project
+                for project in projects
+                if isinstance(
+                    project,
+                    dict,
+                )
+            ],
+            key=lambda item: item.get(
+                "priority",
+                0,
+            ),
+            reverse=True,
+        )
+
+        project_matches = [
+            str(
+                project.get(
+                    "name",
+                    "",
+                )
+            )
+            for project in ordered_projects[:3]
+            if project.get(
+                "name"
+            )
+        ]
+
+    return RecruiterMatch(
+        score=score,
+        recommendation=recommendation,
+        recruiter=recruiter,
+        matching_jobs=matching_jobs,
+        role_matches=sorted(
+            set(
+                recruiter_roles
+                + job_roles
+            )
+        ),
+        skill_matches=sorted(
+            set(
+                _candidate_skill_hits(
+                    profile,
+                    recruiter_text,
+                )
+                + job_skills
+            )
+        ),
+        project_matches=project_matches[:3],
+        reasons=reasons,
     )
 
 
 def match_recruiters_to_jobs(
     recruiters: list[dict[str, Any]],
     jobs: list[dict[str, Any]],
-    minimum_score: float = 50.0,
-) -> list[dict[str, Any]]:
-    matches: list[dict[str, Any]] = []
-
-    for recruiter in recruiters:
-        best_job = None
-        best_score = 0.0
-
-        for job in jobs:
-            score = score_recruiter_job(
-                recruiter,
-                job,
-            )
-
-            if score > best_score:
-                best_score = score
-                best_job = job
-
-        if best_job is None:
-            continue
-
-        if best_score < minimum_score:
-            continue
-
-        matches.append(
-            {
-                "recruiter": recruiter,
-                "job": best_job,
-                "score": best_score,
-            }
+    profile: dict[str, Any],
+    minimum_score: float | None = None,
+) -> list[RecruiterMatch]:
+    matches = [
+        calculate_recruiter_match(
+            recruiter,
+            jobs,
+            profile,
+            minimum_score,
         )
+        for recruiter in recruiters
+    ]
+
+    matches = [
+        match
+        for match in matches
+        if match.recommendation == "OUTREACH"
+    ]
 
     matches.sort(
-        key=lambda item: item["score"],
+        key=lambda match: match.score,
         reverse=True,
     )
 
