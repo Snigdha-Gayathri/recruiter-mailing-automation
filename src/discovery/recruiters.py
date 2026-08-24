@@ -1,37 +1,35 @@
 from __future__ import annotations
 
 import os
-import random
-import time
 from typing import Any
 
 import requests
 
 
 APIFY_BASE_URL = "https://api.apify.com/v2"
+
 DEFAULT_ACTOR_ID = "harvestapi/linkedin-profile-search"
 
-RECRUITER_SEARCH_SEGMENTS = [
+
+RECRUITER_SEARCH_QUERIES = [
     "Recruiter",
     "Technical Recruiter",
+    "Engineering Recruiter",
+    "IT Recruiter",
     "Talent Acquisition",
     "Talent Acquisition Partner",
-    "Technical Talent Acquisition",
-    "Talent Sourcer",
-    "Technical Sourcer",
-    "IT Recruiter",
-    "Engineering Recruiter",
-    "AI Recruiter",
-    "Machine Learning Recruiter",
     "Talent Acquisition Specialist",
+    "Technical Sourcer",
+    "Talent Sourcer",
 ]
+
 
 TARGET_LOCATIONS = [
     "Bengaluru",
-    "Bangalore",
     "Mumbai",
     "Hyderabad",
 ]
+
 
 RECRUITER_TITLE_KEYWORDS = {
     "recruiter",
@@ -41,12 +39,11 @@ RECRUITER_TITLE_KEYWORDS = {
     "talent sourcer",
     "sourcer",
     "headhunter",
-    "technical recruiter",
-    "engineering recruiter",
     "recruitment",
 }
 
-TECHNICAL_RECRUITING_KEYWORDS = {
+
+TECHNICAL_KEYWORDS = {
     "software",
     "technology",
     "technical",
@@ -55,9 +52,8 @@ TECHNICAL_RECRUITING_KEYWORDS = {
     "developer",
     "machine learning",
     "artificial intelligence",
-    "artificial intelligence",
-    "ai",
-    "ml",
+    " ai ",
+    " ml ",
     "data science",
     "data scientist",
     "generative ai",
@@ -67,11 +63,12 @@ TECHNICAL_RECRUITING_KEYWORDS = {
     "nlp",
     "cloud",
     "devops",
-    "platform",
     "backend",
     "frontend",
     "full stack",
+    "platform",
 }
+
 
 TARGET_ROLE_KEYWORDS = {
     "ai engineer",
@@ -88,34 +85,16 @@ TARGET_ROLE_KEYWORDS = {
     "machine learning",
     "deep learning",
     "nlp engineer",
-    "data scientist",
     "mlops",
     "llm",
     "rag",
     "langchain",
     "langgraph",
-    "generative artificial intelligence",
 }
 
-IRRELEVANT_INDUSTRIES = {
-    "construction",
-    "real estate",
-    "architecture",
-    "hospitality",
-    "nursing",
-    "healthcare",
-    "clinical",
-    "medical",
-    "pharmaceutical",
-    "legal",
-    "automotive sales",
-    "retail",
-    "fashion",
-}
 
-IRRELEVANT_RECRUITING_KEYWORDS = {
+IRRELEVANT_KEYWORDS = {
     "construction",
-    "architect",
     "architecture",
     "civil engineer",
     "nurse",
@@ -127,238 +106,389 @@ IRRELEVANT_RECRUITING_KEYWORDS = {
     "real estate",
     "sales recruitment",
     "blue collar",
+    "building materials",
 }
 
 
 def _normalise(value: Any) -> str:
-    if value is None:
+    return str(value or "").strip().lower()
+
+
+def _contains_any(
+    text: str,
+    keywords: set[str],
+) -> list[str]:
+    lowered = text.lower()
+
+    return [
+        keyword
+        for keyword in keywords
+        if keyword in lowered
+    ]
+
+
+def _get_email(
+    profile: dict[str, Any],
+) -> str:
+    emails = profile.get("emails") or []
+
+    if not isinstance(emails, list):
         return ""
 
-    if isinstance(value, str):
-        return value.lower().strip()
+    for item in emails:
+        if isinstance(item, str):
+            value = item
+        elif isinstance(item, dict):
+            value = (
+                item.get("email")
+                or item.get("value")
+                or item.get("address")
+                or ""
+            )
+        else:
+            value = ""
 
-    return str(value).lower().strip()
+        if isinstance(value, str) and "@" in value:
+            return value.strip().lower()
 
-
-def _flatten_profile(profile: dict[str, Any]) -> str:
-    parts: list[str] = []
-
-    parts.append(_normalise(profile.get("headline")))
-    parts.append(_normalise(profile.get("about")))
-
-    location = profile.get("location") or {}
-
-    if isinstance(location, dict):
-        parts.append(_normalise(location.get("linkedinText")))
-        parts.append(_normalise(location.get("parsed", {}).get("text")))
-        parts.append(_normalise(location.get("parsed", {}).get("city")))
-        parts.append(_normalise(location.get("parsed", {}).get("state")))
-
-    current_positions = profile.get("currentPosition") or []
-
-    if isinstance(current_positions, list):
-        for position in current_positions:
-            if not isinstance(position, dict):
-                continue
-
-            parts.append(_normalise(position.get("position")))
-            parts.append(_normalise(position.get("description")))
-            parts.append(_normalise(position.get("companyName")))
-
-            company = position.get("company") or {}
-
-            if isinstance(company, dict):
-                parts.append(_normalise(company.get("name")))
-                parts.append(_normalise(company.get("description")))
-                parts.append(_normalise(company.get("tagline")))
-
-                industries = company.get("industries") or []
-
-                if isinstance(industries, list):
-                    for industry in industries:
-                        if isinstance(industry, dict):
-                            parts.append(_normalise(industry.get("name")))
-
-    top_skills = profile.get("topSkills") or []
-
-    if isinstance(top_skills, list):
-        parts.extend(_normalise(skill) for skill in top_skills)
-
-    return " ".join(part for part in parts if part)
+    return ""
 
 
-def _get_location(profile: dict[str, Any]) -> str:
+def _get_current_position(
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    positions = profile.get("currentPosition") or []
+
+    if not isinstance(positions, list):
+        return {}
+
+    for position in positions:
+        if isinstance(position, dict):
+            return position
+
+    return {}
+
+
+def _get_location(
+    profile: dict[str, Any],
+) -> str:
     location = profile.get("location") or {}
 
     if isinstance(location, dict):
         parsed = location.get("parsed") or {}
 
         if isinstance(parsed, dict):
-            city = _normalise(parsed.get("city"))
+            return str(
+                parsed.get("text")
+                or parsed.get("city")
+                or location.get("linkedinText")
+                or ""
+            ).strip()
 
-            if city:
-                return city
+        return str(
+            location.get("linkedinText")
+            or ""
+        ).strip()
 
-            text = _normalise(parsed.get("text"))
-
-            if text:
-                return text
-
-        text = _normalise(location.get("linkedinText"))
-
-        if text:
-            return text
-
-    return ""
+    return str(location or "").strip()
 
 
-def _get_current_company(profile: dict[str, Any]) -> str:
-    positions = profile.get("currentPosition") or []
+def _get_title(
+    profile: dict[str, Any],
+) -> str:
+    position = _get_current_position(profile)
 
-    if not isinstance(positions, list):
-        return ""
-
-    for position in positions:
-        if not isinstance(position, dict):
-            continue
-
-        company_name = position.get("companyName")
-
-        if company_name:
-            return str(company_name).strip()
-
-    return ""
+    return str(
+        position.get("position")
+        or profile.get("headline")
+        or ""
+    ).strip()
 
 
-def _get_email(profile: dict[str, Any]) -> str:
-    emails = profile.get("emails") or []
+def _get_company(
+    profile: dict[str, Any],
+) -> str:
+    position = _get_current_position(profile)
 
-    if not isinstance(emails, list):
-        return ""
+    company = position.get("company") or {}
 
-    for email in emails:
-        if isinstance(email, str) and "@" in email:
-            return email.strip()
+    if not isinstance(company, dict):
+        company = {}
 
-        if isinstance(email, dict):
-            value = (
-                email.get("email")
-                or email.get("value")
-                or email.get("address")
-            )
-
-            if isinstance(value, str) and "@" in value:
-                return value.strip()
-
-    return ""
+    return str(
+        position.get("companyName")
+        or company.get("name")
+        or ""
+    ).strip()
 
 
-def _get_recruiter_title(profile: dict[str, Any]) -> str:
-    positions = profile.get("currentPosition") or []
+def _flatten_profile(
+    profile: dict[str, Any],
+) -> str:
+    position = _get_current_position(profile)
 
-    if isinstance(positions, list):
-        for position in positions:
-            if not isinstance(position, dict):
-                continue
+    company = position.get("company") or {}
 
-            title = position.get("position")
+    if not isinstance(company, dict):
+        company = {}
 
-            if title:
-                return str(title).strip()
+    industries = company.get("industries") or []
 
-    headline = profile.get("headline")
+    industry_text = ""
 
-    if headline:
-        return str(headline).strip()
+    if isinstance(industries, list):
+        industry_text = " ".join(
+            str(item.get("name", ""))
+            for item in industries
+            if isinstance(item, dict)
+        )
 
-    return ""
+    skills = profile.get("topSkills") or []
 
+    skill_text = ""
 
-def _contains_any(text: str, keywords: set[str]) -> list[str]:
-    return [
-        keyword
-        for keyword in keywords
-        if keyword in text
+    if isinstance(skills, list):
+        skill_text = " ".join(
+            str(skill)
+            for skill in skills
+        )
+
+    values = [
+        profile.get("headline"),
+        profile.get("about"),
+        position.get("position"),
+        position.get("description"),
+        position.get("companyName"),
+        company.get("name"),
+        company.get("description"),
+        company.get("tagline"),
+        industry_text,
+        skill_text,
     ]
 
+    return " ".join(
+        str(value or "")
+        for value in values
+    ).lower()
 
-def score_recruiter(profile: dict[str, Any]) -> dict[str, Any]:
-    text = _flatten_profile(profile)
-    title = _normalise(_get_recruiter_title(profile))
-    location = _normalise(_get_location(profile))
+
+def normalize_recruiter(
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    first_name = str(
+        profile.get("firstName")
+        or ""
+    ).strip()
+
+    last_name = str(
+        profile.get("lastName")
+        or ""
+    ).strip()
+
+    name = " ".join(
+        value
+        for value in [
+            first_name,
+            last_name,
+        ]
+        if value
+    ).strip()
+
+    position = _get_current_position(
+        profile
+    )
+
+    return {
+        **profile,
+        "name": (
+            name
+            or str(
+                profile.get(
+                    "publicIdentifier",
+                    "",
+                )
+            ).strip()
+        ),
+        "title": _get_title(profile),
+        "company": _get_company(profile),
+        "location": _get_location(profile),
+        "email": _get_email(profile),
+        "linkedinUrl": str(
+            profile.get(
+                "linkedinUrl",
+                "",
+            )
+        ).strip(),
+        "job_description": str(
+            position.get(
+                "description",
+                "",
+            )
+        ).strip(),
+    }
+
+
+def deduplicate_recruiters(
+    recruiters: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+
+    for recruiter in recruiters:
+        key = _normalise(
+            recruiter.get("linkedinUrl")
+            or recruiter.get("email")
+            or recruiter.get("publicIdentifier")
+        )
+
+        if not key:
+            continue
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(recruiter)
+
+    return result
+
+
+def score_recruiter(
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    recruiter = normalize_recruiter(
+        profile
+    )
+
+    text = _flatten_profile(
+        recruiter
+    )
+
+    title = _normalise(
+        recruiter["title"]
+    )
+
+    location = _normalise(
+        recruiter["location"]
+    )
 
     score = 0.0
+
     reasons: list[str] = []
 
-    recruiter_matches = _contains_any(
+    title_hits = _contains_any(
         title,
         RECRUITER_TITLE_KEYWORDS,
     )
 
-    if recruiter_matches:
-        score += 25
+    if title_hits:
+        score += 30
+
         reasons.append(
-            f"Recruiting title: {', '.join(recruiter_matches[:3])}"
+            "Recruiting title: "
+            + ", ".join(
+                title_hits[:3]
+            )
         )
 
-    technical_matches = _contains_any(
+    technical_hits = _contains_any(
         text,
-        TECHNICAL_RECRUITING_KEYWORDS,
+        TECHNICAL_KEYWORDS,
     )
 
-    if technical_matches:
-        score += min(25, len(technical_matches) * 5)
+    score += min(
+        25,
+        len(technical_hits) * 5,
+    )
+
+    if technical_hits:
         reasons.append(
-            f"Technical signals: {', '.join(technical_matches[:5])}"
+            "Technical hiring signals: "
+            + ", ".join(
+                technical_hits[:5]
+            )
         )
 
-    target_matches = _contains_any(
+    target_hits = _contains_any(
         text,
         TARGET_ROLE_KEYWORDS,
     )
 
-    if target_matches:
-        score += min(30, len(target_matches) * 7)
+    score += min(
+        25,
+        len(target_hits) * 6,
+    )
+
+    if target_hits:
         reasons.append(
-            f"Target-role signals: {', '.join(target_matches[:5])}"
+            "Target-role signals: "
+            + ", ".join(
+                target_hits[:5]
+            )
         )
 
-    location_matches = [
-        city
+    if any(
+        city.lower() in location
         for city in TARGET_LOCATIONS
-        if city.lower() in location
-    ]
-
-    if location_matches:
+    ):
         score += 10
+
         reasons.append(
-            f"Target location: {', '.join(location_matches)}"
+            "Target Indian location"
         )
 
-    email = _get_email(profile)
+    email = recruiter["email"]
 
     if email:
         score += 10
-        reasons.append("Public email available")
 
-    irrelevant_matches = _contains_any(
+        reasons.append(
+            "Email available"
+        )
+
+    irrelevant_hits = _contains_any(
         text,
-        IRRELEVANT_RECRUITING_KEYWORDS,
+        IRRELEVANT_KEYWORDS,
     )
 
-    if irrelevant_matches:
-        score -= min(40, len(irrelevant_matches) * 10)
+    if irrelevant_hits:
+        score -= min(
+            45,
+            len(irrelevant_hits) * 12,
+        )
+
         reasons.append(
-            f"Irrelevant-domain signals: {', '.join(irrelevant_matches[:5])}"
+            "Irrelevant-domain signals: "
+            + ", ".join(
+                irrelevant_hits[:4]
+            )
+        )
+
+    if profile.get(
+        "recentlyPostedOnLinkedIn"
+    ):
+        score += 5
+
+        reasons.append(
+            "Recently active on LinkedIn"
         )
 
     return {
-        "score": round(max(0.0, min(100.0, score)), 2),
+        "score": round(
+            max(
+                0.0,
+                min(
+                    100.0,
+                    score,
+                ),
+            ),
+            2,
+        ),
         "reasons": reasons,
         "email": email,
-        "location": _get_location(profile),
-        "company": _get_current_company(profile),
-        "title": _get_recruiter_title(profile),
+        "location": recruiter["location"],
+        "company": recruiter["company"],
+        "title": recruiter["title"],
     }
 
 
@@ -366,37 +496,93 @@ def is_qualified_recruiter(
     profile: dict[str, Any],
     minimum_score: float = 45.0,
 ) -> bool:
-    result = score_recruiter(profile)
+    result = score_recruiter(
+        profile
+    )
 
     if result["score"] < minimum_score:
         return False
 
-    title = _normalise(result["title"])
-    text = _flatten_profile(profile)
+    title = _normalise(
+        result["title"]
+    )
+
+    text = _flatten_profile(
+        profile
+    )
 
     has_recruiter_signal = bool(
-        _contains_any(title, RECRUITER_TITLE_KEYWORDS)
-    )
-
-    has_target_signal = bool(
-        _contains_any(text, TARGET_ROLE_KEYWORDS)
-        or _contains_any(text, TECHNICAL_RECRUITING_KEYWORDS)
-    )
-
-    has_irrelevant_signal = bool(
-        _contains_any(text, IRRELEVANT_INDUSTRIES)
+        _contains_any(
+            title,
+            RECRUITER_TITLE_KEYWORDS,
+        )
     )
 
     if not has_recruiter_signal:
         return False
 
-    if not has_target_signal:
+    has_technical_signal = bool(
+        _contains_any(
+            text,
+            TARGET_ROLE_KEYWORDS,
+        )
+        or _contains_any(
+            text,
+            TECHNICAL_KEYWORDS,
+        )
+    )
+
+    if not has_technical_signal:
         return False
 
-    if has_irrelevant_signal and result["score"] < 60:
+    if not result["email"]:
+        return False
+
+    irrelevant_hits = _contains_any(
+        text,
+        IRRELEVANT_KEYWORDS,
+    )
+
+    if (
+        irrelevant_hits
+        and result["score"] < 60
+    ):
         return False
 
     return True
+
+
+def qualify_recruiters(
+    profiles: list[dict[str, Any]],
+    minimum_score: float = 45.0,
+) -> list[dict[str, Any]]:
+    qualified: list[dict[str, Any]] = []
+
+    for profile in profiles:
+        if not is_qualified_recruiter(
+            profile,
+            minimum_score,
+        ):
+            continue
+
+        recruiter = normalize_recruiter(
+            profile
+        )
+
+        recruiter["_match"] = score_recruiter(
+            profile
+        )
+
+        qualified.append(
+            recruiter
+        )
+
+    qualified.sort(
+        key=lambda item: item["_match"]["score"],
+        reverse=True,
+    )
+
+    return qualified
 
 
 def _run_apify_actor(
@@ -404,29 +590,27 @@ def _run_apify_actor(
     actor_input: dict[str, Any],
     timeout_seconds: int = 120,
 ) -> list[dict[str, Any]]:
-    token = os.getenv("APIFY_API_TOKEN")
+    token = os.getenv(
+        "APIFY_API_TOKEN"
+    )
 
     if not token:
         raise RuntimeError(
             "APIFY_API_TOKEN is not configured."
         )
 
-    actor_id = actor_id.strip()
-
-    if not actor_id:
-        raise RuntimeError(
-            "APIFY actor ID is empty."
+    encoded_actor_id = (
+        actor_id
+        .strip()
+        .replace(
+            "/",
+            "~",
         )
-
-    encoded_actor_id = actor_id.replace("/", "~")
-
-    url = (
-        f"{APIFY_BASE_URL}/acts/"
-        f"{encoded_actor_id}/runs"
     )
 
     response = requests.post(
-        url,
+        f"{APIFY_BASE_URL}/acts/"
+        f"{encoded_actor_id}/runs",
         params={
             "token": token,
             "waitForFinish": timeout_seconds,
@@ -437,22 +621,25 @@ def _run_apify_actor(
 
     response.raise_for_status()
 
-    run_data = response.json().get("data") or {}
+    run_data = (
+        response.json().get("data")
+        or {}
+    )
 
-    dataset_id = run_data.get("defaultDatasetId")
+    dataset_id = run_data.get(
+        "defaultDatasetId"
+    )
 
     if not dataset_id:
         return []
 
-    print(f"Apify dataset: {dataset_id}")
-
-    dataset_url = (
-        f"{APIFY_BASE_URL}/datasets/"
-        f"{dataset_id}/items"
+    print(
+        f"Apify dataset: {dataset_id}"
     )
 
     dataset_response = requests.get(
-        dataset_url,
+        f"{APIFY_BASE_URL}/datasets/"
+        f"{dataset_id}/items",
         params={
             "token": token,
             "format": "json",
@@ -463,120 +650,122 @@ def _run_apify_actor(
 
     dataset_response.raise_for_status()
 
-    data = dataset_response.json()
+    items = dataset_response.json()
 
-    if not isinstance(data, list):
+    if not isinstance(
+        items,
+        list,
+    ):
         return []
 
     return [
         item
-        for item in data
-        if isinstance(item, dict)
-    ]
-
-
-def _deduplicate_profiles(
-    profiles: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    seen: set[str] = set()
-    unique: list[dict[str, Any]] = []
-
-    for profile in profiles:
-        identifier = (
-            profile.get("linkedinUrl")
-            or profile.get("publicIdentifier")
-            or profile.get("id")
-            or _get_email(profile)
+        for item in items
+        if isinstance(
+            item,
+            dict,
         )
-
-        if not identifier:
-            continue
-
-        key = str(identifier).strip().lower()
-
-        if key in seen:
-            continue
-
-        seen.add(key)
-        unique.append(profile)
-
-    return unique
+    ]
 
 
 def search_recruiters(
     candidate_profile: dict[str, Any],
     max_results: int = 25,
+    search_index: int = 0,
 ) -> list[dict[str, Any]]:
     actor_id = os.getenv(
         "APIFY_RECRUITER_ACTOR",
         DEFAULT_ACTOR_ID,
     )
 
-    location = random.choice(TARGET_LOCATIONS)
-
-    search_query = os.getenv(
+    query = os.getenv(
         "RECRUITER_SEARCH_QUERY",
-        "Recruiter Talent Acquisition Technical Recruiter "
-        "Engineering Recruiter IT Recruiter AI ML GenAI LLM",
+        RECRUITER_SEARCH_QUERIES[
+            search_index
+            % len(
+                RECRUITER_SEARCH_QUERIES
+            )
+        ],
     )
 
-    print("RECRUITER DISCOVERY")
-    print("Recruiter search strategy: ONE Apify call")
-    print(f"Search focus: {search_query}")
-    print(f"Search location: {location}")
-    print(f"Max recruiter records: {max_results}")
-    print(f"Using Apify actor: {actor_id}")
+    location = TARGET_LOCATIONS[
+        search_index
+        % len(
+            TARGET_LOCATIONS
+        )
+    ]
 
+    print(
+        "RECRUITER DISCOVERY"
+    )
+
+    print(
+        "Recruiter search strategy: "
+        "ONE Apify call"
+    )
+
+    print(
+        f"Search query: {query}"
+    )
+
+    print(
+        f"Search location: {location}"
+    )
+
+    print(
+        f"Max recruiter records: "
+        f"{max_results}"
+    )
+
+    print(
+        f"Using Apify actor: "
+        f"{actor_id}"
+    )
+
+    # IMPORTANT:
+    # These are intentionally the simple fields that
+    # previously produced actual recruiter records.
+    #
+    # Do NOT add restrictive undocumented filters here.
     actor_input = {
-        "profileScraperMode": "Full + email search",
-        "searchQuery": search_query,
-        "locations": [location],
+        "profileScraperMode": (
+            "Full + email search"
+        ),
+        "searchQuery": query,
+        "locations": [
+            location
+        ],
         "maxItems": max_results,
         "startPage": 1,
         "takePages": 1,
     }
 
-    print("Apify input:")
-    print(actor_input)
+    print(
+        "Apify input:"
+    )
+
+    print(
+        actor_input
+    )
 
     profiles = _run_apify_actor(
         actor_id=actor_id,
         actor_input=actor_input,
     )
 
-    print(f"Results: {len(profiles)}")
+    print(
+        f"Results: {len(profiles)}"
+    )
 
-    unique_profiles = _deduplicate_profiles(profiles)
+    unique_profiles = (
+        deduplicate_recruiters(
+            profiles
+        )
+    )
 
     print(
-        f"Unique recruiters: {len(unique_profiles)}"
+        f"Unique recruiters: "
+        f"{len(unique_profiles)}"
     )
 
     return unique_profiles
-
-
-def qualify_recruiters(
-    profiles: list[dict[str, Any]],
-    minimum_score: float = 45.0,
-) -> list[dict[str, Any]]:
-    qualified: list[dict[str, Any]] = []
-
-    for profile in profiles:
-        scoring = score_recruiter(profile)
-
-        enriched = dict(profile)
-
-        enriched["_match"] = scoring
-
-        if is_qualified_recruiter(
-            profile,
-            minimum_score=minimum_score,
-        ):
-            qualified.append(enriched)
-
-    qualified.sort(
-        key=lambda item: item["_match"]["score"],
-        reverse=True,
-    )
-
-    return qualified
