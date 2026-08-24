@@ -4,23 +4,37 @@ import json
 import os
 from pathlib import Path
 
-from discovery.enrichment import enrich_recruiter
+from discovery.enrichment import (
+    enrich_recruiter
+)
+
+from discovery.jobs import (
+    search_company_jobs
+)
+
 from discovery.recruiters import (
     deduplicate_recruiters,
     normalize_recruiter,
     search_recruiters
 )
+
 from matching.scorer import (
     calculate_recruiter_match
 )
-from outreach.gmail import send_email
+
+from outreach.gmail import (
+    send_email
+)
+
 from outreach.personalization import (
     generate_personalization
 )
+
 from outreach.templates import (
     choose_template,
     render_template
 )
+
 from storage.database import (
     has_been_contacted,
     increment_stat,
@@ -30,7 +44,9 @@ from storage.database import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(
+    __file__
+).resolve().parents[1]
 
 PROFILE_PATH = (
     ROOT
@@ -47,18 +63,80 @@ def load_profile() -> dict:
         return json.load(file)
 
 
-def qualify_recruiter(
-    recruiter: dict,
-    profile: dict
-):
-    return calculate_recruiter_match(
-        recruiter,
-        profile
+def discover_company_jobs(
+    recruiters: list[dict]
+) -> dict[str, list[dict]]:
+    company_jobs = {}
+
+    companies = []
+
+    for recruiter in recruiters:
+
+        company = recruiter.get(
+            "company",
+            ""
+        ).strip()
+
+        if not company:
+            continue
+
+        if company.lower() in {
+            item.lower()
+            for item in companies
+        }:
+            continue
+
+        companies.append(
+            company
+        )
+
+    print()
+    print(
+        f"Unique companies to investigate: "
+        f"{len(companies)}"
     )
+
+    max_companies = int(
+        os.getenv(
+            "MAX_COMPANIES_PER_RUN",
+            "10"
+        )
+    )
+
+    companies = companies[
+        :max_companies
+    ]
+
+    for company in companies:
+
+        try:
+
+            jobs = search_company_jobs(
+                company
+            )
+
+            company_jobs[
+                company.lower()
+            ] = jobs
+
+        except Exception as exc:
+
+            print(
+                f"JOB SEARCH FAILED "
+                f"for {company}: "
+                f"{exc}"
+            )
+
+            company_jobs[
+                company.lower()
+            ] = []
+
+    return company_jobs
 
 
 def select_top_recruiters(
     recruiters: list[dict],
+    company_jobs: dict[str, list[dict]],
     profile: dict,
     state: dict
 ) -> list[tuple[dict, object]]:
@@ -79,8 +157,22 @@ def select_top_recruiters(
         ):
             continue
 
-        match = qualify_recruiter(
+        company = recruiter.get(
+            "company",
+            ""
+        ).strip()
+
+        jobs = company_jobs.get(
+            company.lower(),
+            []
+        )
+
+        if not jobs:
+            continue
+
+        match = calculate_recruiter_match(
             recruiter,
+            jobs,
             profile
         )
 
@@ -95,18 +187,92 @@ def select_top_recruiters(
         )
 
     candidates.sort(
-        key=lambda item: (
-            item[1].score,
-
-            item[0].get(
-                "email_quality_score",
-                0
-            )
-        ),
+        key=lambda item: item[1].score,
         reverse=True
     )
 
     return candidates
+
+
+def print_match(
+    recruiter: dict,
+    match
+) -> None:
+
+    print("-" * 70)
+
+    print(
+        f"Recruiter: "
+        f"{recruiter.get('name')}"
+    )
+
+    print(
+        f"Title: "
+        f"{recruiter.get('title')}"
+    )
+
+    print(
+        f"Company: "
+        f"{recruiter.get('company')}"
+    )
+
+    print(
+        f"Location: "
+        f"{recruiter.get('location')}"
+    )
+
+    print(
+        f"Email: "
+        f"{recruiter.get('email')}"
+    )
+
+    print(
+        f"Recruiter signals: "
+        f"{', '.join(match.recruiter_signal_matches)}"
+    )
+
+    print(
+        f"Company signals: "
+        f"{', '.join(match.company_signal_matches)}"
+    )
+
+    print(
+        f"Overall score: "
+        f"{match.score}"
+    )
+
+    print(
+        f"Role matches: "
+        f"{', '.join(match.role_matches[:10])}"
+    )
+
+    print(
+        f"Skill matches: "
+        f"{', '.join(match.skill_matches[:10])}"
+    )
+
+    print(
+        f"Project matches: "
+        f"{', '.join(match.project_matches[:10])}"
+    )
+
+    print(
+        "Matching jobs:"
+    )
+
+    for job in match.matching_jobs[:3]:
+
+        print(
+            f"  - "
+            f"{job.get('title')} | "
+            f"{job.get('location')} | "
+            f"fit={job.get('fit_score')}"
+        )
+
+        if job.get("url"):
+            print(
+                f"    {job.get('url')}"
+            )
 
 
 def send_to_recruiter(
@@ -164,15 +330,10 @@ def send_to_recruiter(
 
         record_contact(
             state=state,
-
             recruiter=recruiter,
-
             template=template_name,
-
             subject=subject,
-
             message_id=message_id,
-
             status="sent"
         )
 
@@ -187,21 +348,16 @@ def send_to_recruiter(
 
         print(
             f"EMAIL FAILED: "
-            f"{recruiter.get('email')} "
-            f"-> {exc}"
+            f"{recruiter.get('email')}: "
+            f"{exc}"
         )
 
         record_contact(
             state=state,
-
             recruiter=recruiter,
-
             template=template_name,
-
             subject=subject,
-
             message_id=None,
-
             status="failed"
         )
 
@@ -213,87 +369,15 @@ def send_to_recruiter(
         return False
 
 
-def print_recruiter_match(
-    recruiter: dict,
-    match
-) -> None:
-
-    print("-" * 70)
-
-    print(
-        f"Recruiter: "
-        f"{recruiter.get('name')}"
-    )
-
-    print(
-        f"Email: "
-        f"{recruiter.get('email')}"
-    )
-
-    print(
-        f"Company: "
-        f"{recruiter.get('company')}"
-    )
-
-    print(
-        f"Title: "
-        f"{recruiter.get('title')}"
-    )
-
-    print(
-        f"Location: "
-        f"{recruiter.get('location')}"
-    )
-
-    print(
-        f"Match score: "
-        f"{match.score}"
-    )
-
-    print(
-        f"Recruiter signals: "
-        f"{', '.join(match.recruiter_signal_matches)}"
-    )
-
-    print(
-        f"Target role signals: "
-        f"{', '.join(match.role_matches)}"
-    )
-
-    print(
-        f"Skill matches: "
-        f"{', '.join(match.skill_matches[:10])}"
-    )
-
-    print(
-        f"Project matches: "
-        f"{', '.join(match.project_matches)}"
-    )
-
-    print(
-        f"Company signals: "
-        f"{', '.join(match.company_signal_matches)}"
-    )
-
-    print(
-        f"Location match: "
-        f"{match.location_match}"
-    )
-
-    print(
-        f"Hiring signal: "
-        f"{match.hiring_signal}"
-    )
-
-
 def main():
 
     print("=" * 70)
-    print("AI RECRUITER HUNTER")
+    print(
+        "AI RECRUITER HUNTER"
+    )
     print("=" * 70)
 
     profile = load_profile()
-
     state = load_state()
 
     print(
@@ -313,7 +397,6 @@ def main():
     )
 
     print()
-
     print(
         "RECRUITER DISCOVERY"
     )
@@ -336,13 +419,18 @@ def main():
 
     recruiters = [
         enrich_recruiter(
-            item
+            recruiter
         )
-        for item in recruiters
+        for recruiter in recruiters
     ]
 
     recruiters = deduplicate_recruiters(
         recruiters
+    )
+
+    print(
+        f"Unique recruiters: "
+        f"{len(recruiters)}"
     )
 
     increment_stat(
@@ -351,19 +439,34 @@ def main():
         len(recruiters)
     )
 
+    print()
     print(
-        f"Unique recruiters: "
-        f"{len(recruiters)}"
+        "CURRENT COMPANY HIRING DISCOVERY"
+    )
+
+    company_jobs = discover_company_jobs(
+        recruiters
+    )
+
+    total_relevant_jobs = sum(
+        len(jobs)
+        for jobs in company_jobs.values()
     )
 
     print()
-
     print(
-        "RECRUITER QUALIFICATION"
+        f"Relevant current jobs found: "
+        f"{total_relevant_jobs}"
+    )
+
+    print()
+    print(
+        "RECRUITER + JOB QUALIFICATION"
     )
 
     candidates = select_top_recruiters(
         recruiters,
+        company_jobs,
         profile,
         state
     )
@@ -381,8 +484,10 @@ def main():
 
     if not candidates:
 
+        print()
         print(
-            "No qualified new recruiters found."
+            "No qualified recruiters found "
+            "for current matching openings."
         )
 
         save_state(
@@ -392,26 +497,18 @@ def main():
         return
 
     print()
-
     print(
         "TOP RECRUITERS"
     )
 
-    preview_limit = min(
-        10,
-        len(candidates)
-    )
+    for recruiter, match in candidates[:10]:
 
-    for recruiter, match in candidates[
-        :preview_limit
-    ]:
-
-        print_recruiter_match(
+        print_match(
             recruiter,
             match
         )
 
-    max_per_run = int(
+    max_emails = int(
         os.getenv(
             "MAX_EMAILS_PER_RUN",
             "5"
@@ -419,17 +516,14 @@ def main():
     )
 
     selected = candidates[
-        :max_per_run
+        :max_emails
     ]
 
     print()
-
     print(
-        f"Selected for outreach: "
+        f"SELECTED FOR OUTREACH: "
         f"{len(selected)}"
     )
-
-    print()
 
     for index, (
         recruiter,
@@ -438,21 +532,17 @@ def main():
         selected
     ):
 
+        print()
         print("=" * 70)
 
         print(
-            f"SENDING {index + 1}/"
+            f"OUTREACH {index + 1}/"
             f"{len(selected)}"
         )
 
         print(
             f"To: "
             f"{recruiter.get('email')}"
-        )
-
-        print(
-            f"Recruiter: "
-            f"{recruiter.get('name')}"
         )
 
         print(
@@ -466,15 +556,11 @@ def main():
         )
 
         send_to_recruiter(
-            recruiter=recruiter,
-
-            match=match,
-
-            template_index=index,
-
-            profile=profile,
-
-            state=state
+            recruiter,
+            match,
+            index,
+            profile,
+            state
         )
 
         save_state(
@@ -482,9 +568,10 @@ def main():
         )
 
     print()
-
     print("=" * 70)
-    print("RUN COMPLETE")
+    print(
+        "RUN COMPLETE"
+    )
     print("=" * 70)
 
     print(
