@@ -1,30 +1,16 @@
 from __future__ import annotations
 
+import json
 import os
-import re
+import time
+from pathlib import Path
 from typing import Any
 
 import requests
 
 
-APIFY_API_BASE = (
-    "https://api.apify.com/v2"
-)
-
-DEFAULT_JOB_ACTOR = (
-    "bebity~linkedin-jobs-scraper"
-)
-
-JOB_SEARCH_QUERY = (
-    "AI Engineer OR "
-    "Machine Learning Engineer OR "
-    "Generative AI OR "
-    "GenAI OR "
-    "LLM Engineer OR "
-    "AI Agent Engineer OR "
-    "RAG Engineer OR "
-    "Applied AI Engineer"
-)
+APIFY_BASE_URL = "https://api.apify.com/v2"
+DEFAULT_JOB_ACTOR = "bebity/linkedin-jobs-scraper"
 
 TARGET_LOCATIONS = [
     "Bengaluru",
@@ -34,450 +20,169 @@ TARGET_LOCATIONS = [
     "Remote",
 ]
 
+TARGET_JOB_TERMS = [
+    "AI Engineer",
+    "Machine Learning Engineer",
+    "ML Engineer",
+    "Generative AI",
+    "GenAI",
+    "LLM Engineer",
+    "AI Agent Engineer",
+    "RAG Engineer",
+    "Applied AI Engineer",
+    "NLP Engineer",
+    "AI/ML Engineer",
+]
 
-def normalize(
-    value: Any,
-) -> str:
 
-    text = str(
-        value or ""
-    ).lower()
+def _normalise(value: Any) -> str:
+    if value is None:
+        return ""
 
-    text = re.sub(
-        r"[^a-z0-9+#./& -]",
-        " ",
-        text,
+    if isinstance(value, str):
+        return value.lower().strip()
+
+    return str(value).lower().strip()
+
+
+def _job_text(job: dict[str, Any]) -> str:
+    fields = [
+        job.get("title"),
+        job.get("description"),
+        job.get("location"),
+        job.get("companyName"),
+        job.get("company"),
+        job.get("workplaceType"),
+    ]
+
+    return " ".join(
+        _normalise(field)
+        for field in fields
+        if field
     )
 
-    text = re.sub(
-        r"\s+",
-        " ",
-        text,
-    )
 
-    return text.strip()
-
-
-def get_apify_token() -> str:
-
-    token = os.getenv(
-        "APIFY_API_TOKEN",
-        "",
+def _job_title(job: dict[str, Any]) -> str:
+    return str(
+        job.get("title")
+        or job.get("jobTitle")
+        or job.get("name")
+        or ""
     ).strip()
 
-    if not token:
 
+def _job_company(job: dict[str, Any]) -> str:
+    company = job.get("company")
+
+    if isinstance(company, dict):
+        return str(
+            company.get("name")
+            or company.get("companyName")
+            or ""
+        ).strip()
+
+    return str(
+        job.get("companyName")
+        or company
+        or ""
+    ).strip()
+
+
+def _job_location(job: dict[str, Any]) -> str:
+    location = job.get("location")
+
+    if isinstance(location, dict):
+        return str(
+            location.get("name")
+            or location.get("city")
+            or location.get("text")
+            or ""
+        ).strip()
+
+    return str(location or "").strip()
+
+
+def score_job(job: dict[str, Any]) -> float:
+    text = _job_text(job)
+    title = _normalise(_job_title(job))
+    location = _normalise(_job_location(job))
+
+    score = 0.0
+
+    title_hits = sum(
+        term.lower() in title
+        for term in TARGET_JOB_TERMS
+    )
+
+    text_hits = sum(
+        term.lower() in text
+        for term in TARGET_JOB_TERMS
+    )
+
+    score += min(60, title_hits * 25)
+    score += min(25, text_hits * 5)
+
+    if any(
+        city.lower() in location
+        for city in TARGET_LOCATIONS
+    ):
+        score += 15
+
+    return round(
+        min(100.0, score),
+        2,
+    )
+
+
+def is_relevant_job(
+    job: dict[str, Any],
+    minimum_score: float = 30.0,
+) -> bool:
+    return score_job(job) >= minimum_score
+
+
+def _run_apify_job_actor(
+    actor_id: str,
+    actor_input: dict[str, Any],
+    timeout_seconds: int = 120,
+) -> list[dict[str, Any]]:
+    token = os.getenv("APIFY_API_TOKEN")
+
+    if not token:
         raise RuntimeError(
             "APIFY_API_TOKEN is not configured."
         )
 
-    return token
-
-
-def get_actor_id() -> str:
-
-    return os.getenv(
-        "APIFY_JOB_ACTOR",
-        DEFAULT_JOB_ACTOR,
-    ).strip() or DEFAULT_JOB_ACTOR
-
-
-def extract_string(
-    record: dict[str, Any],
-    fields: list[str],
-) -> str:
-
-    for field in fields:
-
-        value = record.get(
-            field
-        )
-
-        if (
-            isinstance(
-                value,
-                str,
-            )
-            and value.strip()
-        ):
-
-            return value.strip()
-
-    return ""
-
-
-def extract_title(
-    record: dict[str, Any],
-) -> str:
-
-    return extract_string(
-        record,
-        [
-            "title",
-            "jobTitle",
-            "job_title",
-            "position",
-            "name",
-        ],
-    )
-
-
-def extract_company(
-    record: dict[str, Any],
-) -> str:
-
-    return extract_string(
-        record,
-        [
-            "companyName",
-            "company",
-            "company_name",
-            "organizationName",
-            "organization",
-        ],
-    )
-
-
-def extract_location(
-    record: dict[str, Any],
-) -> str:
-
-    value = extract_string(
-        record,
-        [
-            "location",
-            "jobLocation",
-            "formattedLocation",
-            "locationName",
-            "city",
-        ],
-    )
-
-    if value:
-        return value
-
-    location = record.get(
-        "location"
-    )
-
-    if isinstance(
-        location,
-        dict,
-    ):
-
-        city = str(
-            location.get(
-                "city",
-                "",
-            )
-        ).strip()
-
-        country = str(
-            location.get(
-                "country",
-                "",
-            )
-        ).strip()
-
-        return ", ".join(
-            part
-            for part in [
-                city,
-                country,
-            ]
-            if part
-        )
-
-    return ""
-
-
-def extract_description(
-    record: dict[str, Any],
-) -> str:
-
-    return extract_string(
-        record,
-        [
-            "description",
-            "jobDescription",
-            "descriptionText",
-            "job_description",
-        ],
-    )
-
-
-def extract_url(
-    record: dict[str, Any],
-) -> str:
-
-    return extract_string(
-        record,
-        [
-            "url",
-            "jobUrl",
-            "job_url",
-            "linkedinUrl",
-            "link",
-        ],
-    )
-
-
-def normalize_job(
-    record: dict[str, Any],
-) -> dict[str, Any]:
-
-    return {
-        "title": extract_title(
-            record
-        ),
-        "company": extract_company(
-            record
-        ),
-        "location": extract_location(
-            record
-        ),
-        "description": extract_description(
-            record
-        ),
-        "url": extract_url(
-            record
-        ),
-        "raw": record,
-    }
-
-
-def role_matches(
-    job: dict[str, Any],
-) -> bool:
-
-    text = normalize(
-        " ".join(
-            [
-                job.get(
-                    "title",
-                    "",
-                ),
-                job.get(
-                    "description",
-                    "",
-                ),
-            ]
-        )
-    )
-
-    keywords = [
-        "ai engineer",
-        "artificial intelligence",
-        "machine learning",
-        "ml engineer",
-        "generative ai",
-        "genai",
-        "llm",
-        "large language model",
-        "agent engineer",
-        "ai agent",
-        "applied ai",
-        "rag",
-        "retrieval augmented generation",
-        "nlp",
-        "natural language processing",
-        "deep learning",
-        "mlops",
-        "llmops",
-    ]
-
-    return any(
-        keyword in text
-        for keyword in keywords
-    )
-
-
-def location_matches(
-    location: str,
-) -> bool:
-
-    value = normalize(
-        location
-    )
-
-    if not value:
-        return False
-
-    return any(
-        normalize(target)
-        in value
-        for target in TARGET_LOCATIONS
-    )
-
-
-def relevant_job(
-    job: dict[str, Any],
-) -> bool:
-
-    return (
-        role_matches(job)
-        and location_matches(
-            job.get(
-                "location",
-                "",
-            )
-        )
-    )
-
-
-def deduplicate_jobs(
-    jobs: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-
-    seen = set()
-    result = []
-
-    for job in jobs:
-
-        url = normalize(
-            job.get(
-                "url",
-                "",
-            )
-        )
-
-        title = normalize(
-            job.get(
-                "title",
-                "",
-            )
-        )
-
-        company = normalize(
-            job.get(
-                "company",
-                "",
-            )
-        )
-
-        location = normalize(
-            job.get(
-                "location",
-                "",
-            )
-        )
-
-        key = (
-            url
-            or f"{title}|{company}|{location}"
-        )
-
-        if not key:
-            continue
-
-        if key in seen:
-            continue
-
-        seen.add(
-            key
-        )
-
-        result.append(
-            job
-        )
-
-    return result
-
-
-def search_jobs() -> list[dict[str, Any]]:
-
-    token = get_apify_token()
-
-    actor_id = get_actor_id()
-
-    encoded_actor_id = (
-        actor_id.replace(
-            "/",
-            "~",
-        )
-    )
+    encoded_actor_id = actor_id.replace("/", "~")
 
     url = (
-        f"{APIFY_API_BASE}/acts/"
+        f"{APIFY_BASE_URL}/acts/"
         f"{encoded_actor_id}/runs"
-    )
-
-    max_items = int(
-        os.getenv(
-            "JOB_MAX_ITEMS",
-            "100",
-        )
-    )
-
-    max_items = max(
-        1,
-        min(
-            max_items,
-            100,
-        ),
-    )
-
-    actor_input = {
-        "searchQuery": JOB_SEARCH_QUERY,
-        "locations": TARGET_LOCATIONS,
-        "maxItems": max_items,
-        "startPage": 1,
-        "takePages": 1,
-    }
-
-    print(
-        f"Using Apify job actor: "
-        f"{actor_id}"
-    )
-
-    print(
-        "Apify job input:"
-    )
-
-    print(
-        actor_input
     )
 
     response = requests.post(
         url,
         params={
             "token": token,
-            "waitForFinish": 120,
+            "waitForFinish": timeout_seconds,
         },
         json=actor_input,
-        timeout=300,
+        timeout=timeout_seconds + 30,
     )
 
-    if not response.ok:
+    response.raise_for_status()
 
-        raise RuntimeError(
-            "Apify job discovery failed.\n"
-            f"HTTP: "
-            f"{response.status_code}\n"
-            f"Response: "
-            f"{response.text[:3000]}"
-        )
+    run_data = response.json().get("data") or {}
 
-    payload = response.json()
-
-    run_data = payload.get(
-        "data",
-        {},
-    )
-
-    dataset_id = run_data.get(
-        "defaultDatasetId"
-    )
+    dataset_id = run_data.get("defaultDatasetId")
 
     if not dataset_id:
+        return []
 
-        raise RuntimeError(
-            "Apify job run returned "
-            "no dataset ID."
-        )
+    print(f"Apify job dataset: {dataset_id}")
 
     dataset_url = (
-        f"{APIFY_API_BASE}/datasets/"
+        f"{APIFY_BASE_URL}/datasets/"
         f"{dataset_id}/items"
     )
 
@@ -485,62 +190,210 @@ def search_jobs() -> list[dict[str, Any]]:
         dataset_url,
         params={
             "token": token,
+            "format": "json",
             "clean": "true",
         },
-        timeout=300,
+        timeout=60,
     )
 
-    if not dataset_response.ok:
+    dataset_response.raise_for_status()
 
-        raise RuntimeError(
-            "Failed to retrieve "
-            "Apify job dataset.\n"
-            f"HTTP: "
-            f"{dataset_response.status_code}\n"
-            f"Response: "
-            f"{dataset_response.text[:3000]}"
-        )
+    data = dataset_response.json()
 
-    records = dataset_response.json()
-
-    if not isinstance(
-        records,
-        list,
-    ):
-
+    if not isinstance(data, list):
         return []
 
-    print(
-        f"Raw job records: "
-        f"{len(records)}"
+    return [
+        item
+        for item in data
+        if isinstance(item, dict)
+    ]
+
+
+def search_jobs(
+    max_results: int = 100,
+) -> list[dict[str, Any]]:
+    actor_id = os.getenv(
+        "APIFY_JOB_ACTOR",
+        DEFAULT_JOB_ACTOR,
     )
 
-    jobs = []
+    query = (
+        "AI Engineer OR Machine Learning Engineer OR "
+        "Generative AI OR GenAI OR LLM Engineer OR "
+        "AI Agent Engineer OR RAG Engineer OR "
+        "Applied AI Engineer"
+    )
 
-    for record in records:
+    print("JOB DISCOVERY")
+    print(f"Using Apify job actor: {actor_id}")
+    print(f"Job query: {query}")
 
-        if not isinstance(
-            record,
-            dict,
-        ):
-            continue
+    actor_input = {
+        "searchQuery": query,
+        "locations": TARGET_LOCATIONS,
+        "maxItems": max_results,
+        "startPage": 1,
+        "takePages": 1,
+    }
 
-        job = normalize_job(
-            record
-        )
+    print("Apify job input:")
+    print(actor_input)
 
-        if relevant_job(job):
-            jobs.append(
-                job
+    jobs = _run_apify_job_actor(
+        actor_id=actor_id,
+        actor_input=actor_input,
+    )
+
+    relevant = [
+        job
+        for job in jobs
+        if is_relevant_job(job)
+    ]
+
+    relevant.sort(
+        key=score_job,
+        reverse=True,
+    )
+
+    print(f"Raw jobs: {len(jobs)}")
+    print(f"Relevant jobs: {len(relevant)}")
+
+    return relevant
+
+
+def load_job_cache(
+    cache_path: str,
+    ttl_seconds: int,
+) -> list[dict[str, Any]]:
+    path = Path(cache_path)
+
+    if not path.exists():
+        return []
+
+    try:
+        data = json.loads(
+            path.read_text(
+                encoding="utf-8"
             )
+        )
+    except (
+        OSError,
+        json.JSONDecodeError,
+    ):
+        return []
 
-    jobs = deduplicate_jobs(
-        jobs
+    if not isinstance(data, dict):
+        return []
+
+    timestamp = data.get("timestamp")
+
+    if not isinstance(timestamp, (int, float)):
+        return []
+
+    age = time.time() - timestamp
+
+    if age >= ttl_seconds:
+        return []
+
+    jobs = data.get("jobs")
+
+    if not isinstance(jobs, list):
+        return []
+
+    return [
+        job
+        for job in jobs
+        if isinstance(job, dict)
+    ]
+
+
+def save_job_cache(
+    cache_path: str,
+    jobs: list[dict[str, Any]],
+) -> None:
+    path = Path(cache_path)
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
-    print(
-        f"Relevant unique jobs: "
-        f"{len(jobs)}"
+    payload = {
+        "timestamp": time.time(),
+        "jobs": jobs,
+    }
+
+    path.write_text(
+        json.dumps(
+            payload,
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def get_jobs_with_cache(
+    cache_path: str = "data/job_cache.json",
+    ttl_seconds: int = 21600,
+    max_results: int = 100,
+) -> list[dict[str, Any]]:
+    cached_jobs = load_job_cache(
+        cache_path=cache_path,
+        ttl_seconds=ttl_seconds,
+    )
+
+    if cached_jobs:
+        print("JOB DISCOVERY")
+        print(
+            f"Using cached jobs: {len(cached_jobs)}"
+        )
+        print(
+            f"Job cache TTL: {ttl_seconds // 3600} hours"
+        )
+        return cached_jobs
+
+    print("JOB DISCOVERY")
+    print("Job cache expired or empty.")
+    print("Refreshing global AI job cache...")
+
+    jobs = search_jobs(
+        max_results=max_results,
+    )
+
+    save_job_cache(
+        cache_path=cache_path,
+        jobs=jobs,
     )
 
     return jobs
+
+
+def jobs_for_company(
+    jobs: list[dict[str, Any]],
+    company_name: str,
+) -> list[dict[str, Any]]:
+    target = _normalise(company_name)
+
+    if not target:
+        return []
+
+    return [
+        job
+        for job in jobs
+        if target in _normalise(_job_company(job))
+    ]
+
+
+def search_company_jobs(
+    company_name: str,
+    jobs: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    if jobs is None:
+        jobs = get_jobs_with_cache()
+
+    return jobs_for_company(
+        jobs,
+        company_name,
+    )
