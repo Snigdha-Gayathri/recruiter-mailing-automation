@@ -11,6 +11,8 @@ APIFY_API_BASE = "https://api.apify.com/v2"
 
 DEFAULT_ACTOR_ID = "harvestapi~linkedin-profile-search"
 
+DEFAULT_MAX_ITEMS = 25
+
 SEARCH_FOCUSES = [
     "Technical Recruiter",
     "Technical Talent Acquisition",
@@ -27,7 +29,8 @@ SEARCH_FOCUSES = [
     "Engineering Manager",
 ]
 
-TARGET_LOCATIONS = [
+DEFAULT_LOCATIONS = [
+    "Bangalore",
     "Bengaluru",
     "Mumbai",
     "Hyderabad",
@@ -54,7 +57,10 @@ def get_actor_id() -> str:
         DEFAULT_ACTOR_ID,
     ).strip()
 
-    return actor_id or DEFAULT_ACTOR_ID
+    if not actor_id:
+        return DEFAULT_ACTOR_ID
+
+    return actor_id
 
 
 def get_search_focus() -> str:
@@ -64,7 +70,9 @@ def get_search_focus() -> str:
     ).strip()
 
     if configured_index.isdigit():
-        index = int(configured_index)
+        index = int(
+            configured_index
+        )
     else:
         current_hour = datetime.now(
             timezone.utc
@@ -95,30 +103,27 @@ def get_search_location(
         )
     )
 
-    locations = []
+    locations: list[str] = []
 
     for location in configured_locations:
 
-        normalized = str(
+        value = str(
             location
         ).strip()
 
-        if not normalized:
+        if not value:
             continue
 
-        if normalized.lower() == "remote":
+        if value.lower() == "remote":
             continue
 
-        if normalized.lower() == "bangalore":
-            normalized = "Bengaluru"
-
-        if normalized not in locations:
+        if value not in locations:
             locations.append(
-                normalized
+                value
             )
 
     if not locations:
-        locations = TARGET_LOCATIONS
+        locations = DEFAULT_LOCATIONS
 
     current_hour = datetime.now(
         timezone.utc
@@ -140,6 +145,24 @@ def build_run_input(
     profile: dict[str, Any],
 ) -> dict[str, Any]:
 
+    max_items_raw = os.getenv(
+        "RECRUITER_MAX_ITEMS",
+        str(DEFAULT_MAX_ITEMS),
+    ).strip()
+
+    try:
+        max_items = int(
+            max_items_raw
+        )
+    except ValueError:
+        max_items = DEFAULT_MAX_ITEMS
+
+    if max_items <= 0:
+        max_items = DEFAULT_MAX_ITEMS
+
+    if max_items > 25:
+        max_items = 25
+
     return {
         "profileScraperMode": (
             "Full + email search"
@@ -152,12 +175,7 @@ def build_run_input(
                 profile
             )
         ],
-        "maxItems": int(
-            os.getenv(
-                "RECRUITER_MAX_ITEMS",
-                "100",
-            )
-        ),
+        "maxItems": max_items,
         "startPage": 1,
         "takePages": 1,
     }
@@ -204,7 +222,6 @@ def run_apify_actor(
     )
 
     if not response.ok:
-
         raise RuntimeError(
             "Apify actor request failed.\n"
             f"HTTP status: "
@@ -226,7 +243,6 @@ def run_apify_actor(
     )
 
     if not dataset_id:
-
         raise RuntimeError(
             "Apify run completed without "
             "a dataset ID.\n"
@@ -252,7 +268,6 @@ def run_apify_actor(
     )
 
     if not dataset_response.ok:
-
         raise RuntimeError(
             "Failed to retrieve "
             "Apify dataset.\n"
@@ -268,7 +283,6 @@ def run_apify_actor(
         items,
         list,
     ):
-
         raise RuntimeError(
             "Apify dataset response "
             "was not a list."
@@ -298,12 +312,17 @@ def search_recruiters(
 
     print(
         f"Search focus: "
-        f"{get_search_focus()}"
+        f"{run_input['searchQuery']}"
     )
 
     print(
         f"Search location: "
         f"{run_input['locations'][0]}"
+    )
+
+    print(
+        f"Max recruiter records: "
+        f"{run_input['maxItems']}"
     )
 
     return run_apify_actor(
@@ -592,10 +611,7 @@ def extract_linkedin_url(
 
             value = value.strip()
 
-            if (
-                "linkedin.com"
-                in value
-            ):
+            if "linkedin.com" in value:
                 return value
 
     return ""
