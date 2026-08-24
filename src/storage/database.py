@@ -6,13 +6,20 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_STATE = {
+DEFAULT_STATE: dict[str, Any] = {
     "contacted_emails": [],
     "contacted_linkedin_urls": [],
     "seen_recruiters": [],
     "templates_used": {},
     "runs": 0,
     "emails_sent": 0,
+    "emails_failed": 0,
+    "apify_calls": 0,
+    "discovered": 0,
+    "qualified": 0,
+    "job_cache": [],
+    "job_cache_timestamp": 0,
+    "statistics": {},
 }
 
 
@@ -76,21 +83,55 @@ def increment_run(
     state: dict[str, Any],
 ) -> None:
     state["runs"] = int(
-        state.get("runs", 0)
+        state.get(
+            "runs",
+            0,
+        )
     ) + 1
+
+
+def increment_stat(
+    state: dict[str, Any],
+    name: str,
+    amount: int = 1,
+) -> None:
+    statistics = state.setdefault(
+        "statistics",
+        {},
+    )
+
+    statistics[name] = (
+        int(
+            statistics.get(
+                name,
+                0,
+            )
+        )
+        + amount
+    )
+
+    state[name] = (
+        int(
+            state.get(
+                name,
+                0,
+            )
+        )
+        + amount
+    )
 
 
 def mark_recruiter_seen(
     state: dict[str, Any],
     recruiter: dict[str, Any],
 ) -> None:
-    url = (
+    identifier = (
         recruiter.get("linkedinUrl")
         or recruiter.get("publicIdentifier")
         or recruiter.get("id")
     )
 
-    if not url:
+    if not identifier:
         return
 
     seen = state.setdefault(
@@ -98,27 +139,36 @@ def mark_recruiter_seen(
         [],
     )
 
-    if url not in seen:
-        seen.append(url)
+    identifier = str(
+        identifier
+    ).strip()
+
+    if identifier and identifier not in seen:
+        seen.append(identifier)
 
 
-def recruiter_has_been_contacted(
+def has_been_contacted(
     state: dict[str, Any],
     recruiter: dict[str, Any],
 ) -> bool:
-    email = (
-        recruiter.get("_match", {}).get("email")
-        or recruiter.get("email")
+    email = str(
+        recruiter.get(
+            "email",
+            "",
+        )
         or ""
-    )
+    ).strip().lower()
 
-    linkedin_url = (
-        recruiter.get("linkedinUrl")
+    linkedin_url = str(
+        recruiter.get(
+            "linkedinUrl",
+            "",
+        )
         or ""
-    )
+    ).strip().lower()
 
     contacted_emails = {
-        str(value).lower()
+        str(value).strip().lower()
         for value in state.get(
             "contacted_emails",
             [],
@@ -126,54 +176,105 @@ def recruiter_has_been_contacted(
     }
 
     contacted_linkedin = {
-        str(value).lower()
+        str(value).strip().lower()
         for value in state.get(
             "contacted_linkedin_urls",
             [],
         )
     }
 
-    if email and str(email).lower() in contacted_emails:
+    if email and email in contacted_emails:
         return True
 
     if (
         linkedin_url
-        and str(linkedin_url).lower()
-        in contacted_linkedin
+        and linkedin_url in contacted_linkedin
     ):
         return True
 
     return False
 
 
-def mark_contacted(
+def recruiter_has_been_contacted(
     state: dict[str, Any],
     recruiter: dict[str, Any],
+) -> bool:
+    return has_been_contacted(
+        state,
+        recruiter,
+    )
+
+
+def record_contact(
+    state: dict[str, Any],
+    recruiter: dict[str, Any],
+    template: str,
+    subject: str,
+    message_id: str | None,
+    status: str,
 ) -> None:
-    email = (
-        recruiter.get("_match", {}).get("email")
-        or recruiter.get("email")
+    email = str(
+        recruiter.get(
+            "email",
+            "",
+        )
+        or ""
+    ).strip().lower()
+
+    linkedin_url = str(
+        recruiter.get(
+            "linkedinUrl",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if status == "sent":
+        if email:
+            emails = state.setdefault(
+                "contacted_emails",
+                [],
+            )
+
+            if email not in emails:
+                emails.append(email)
+
+        if linkedin_url:
+            urls = state.setdefault(
+                "contacted_linkedin_urls",
+                [],
+            )
+
+            if linkedin_url not in urls:
+                urls.append(linkedin_url)
+
+    contacts = state.setdefault(
+        "contacts",
+        [],
     )
 
-    linkedin_url = recruiter.get(
-        "linkedinUrl"
+    contacts.append(
+        {
+            "name": recruiter.get(
+                "name",
+                "",
+            ),
+            "email": email,
+            "linkedin_url": linkedin_url,
+            "company": recruiter.get(
+                "company",
+                "",
+            ),
+            "title": recruiter.get(
+                "title",
+                "",
+            ),
+            "template": template,
+            "subject": subject,
+            "message_id": message_id,
+            "status": status,
+        }
     )
-
-    if email:
-        state.setdefault(
-            "contacted_emails",
-            [],
-        ).append(email)
-
-    if linkedin_url:
-        state.setdefault(
-            "contacted_linkedin_urls",
-            [],
-        ).append(linkedin_url)
-
-    state["emails_sent"] = int(
-        state.get("emails_sent", 0)
-    ) + 1
 
 
 def record_template_usage(
@@ -186,6 +287,53 @@ def record_template_usage(
     )
 
     templates[template_name] = (
-        int(templates.get(template_name, 0))
+        int(
+            templates.get(
+                template_name,
+                0,
+            )
+        )
         + 1
     )
+
+
+def get_cached_jobs(
+    state: dict[str, Any],
+) -> list[dict[str, Any]]:
+    jobs = state.get(
+        "job_cache",
+        [],
+    )
+
+    if not isinstance(
+        jobs,
+        list,
+    ):
+        return []
+
+    return [
+        job
+        for job in jobs
+        if isinstance(
+            job,
+            dict,
+        )
+    ]
+
+
+def set_job_cache(
+    state: dict[str, Any],
+    jobs: list[dict[str, Any]],
+) -> None:
+    state["job_cache"] = [
+        job
+        for job in jobs
+        if isinstance(
+            job,
+            dict,
+        )
+    ]
+
+    state["job_cache_timestamp"] = __import__(
+        "time"
+    ).time()
