@@ -1,1 +1,1 @@
-
+"""AI Recruiter Hunter package."""
