@@ -5,47 +5,39 @@ import os
 from pathlib import Path
 
 from discovery.enrichment import enrich_recruiter
-from discovery.jobs import (
-    jobs_for_company,
-    search_jobs,
-)
 from discovery.recruiters import (
     deduplicate_recruiters,
     normalize_recruiter,
     search_recruiters,
 )
-from matching.scorer import calculate_recruiter_match
+from matching.scorer import (
+    calculate_recruiter_match,
+)
 from outreach.gmail import send_email
-from outreach.personalization import generate_personalization
-from outreach.templates import choose_template, render_template
+from outreach.personalization import (
+    generate_personalization,
+)
+from outreach.templates import (
+    choose_template,
+    render_template,
+)
 from storage.database import (
-    get_cached_jobs,
     has_been_contacted,
     increment_stat,
-    job_cache_is_fresh,
     load_state,
     record_contact,
     save_state,
-    set_job_cache,
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(
+    __file__
+).resolve().parents[1]
 
-PROFILE_PATH = ROOT / "config" / "profile.json"
-
-MAX_APIFY_CALLS = int(
-    os.getenv(
-        "MAX_APIFY_CALLS_PER_RUN",
-        "2",
-    )
-)
-
-JOB_CACHE_TTL_HOURS = int(
-    os.getenv(
-        "JOB_CACHE_TTL_HOURS",
-        "6",
-    )
+PROFILE_PATH = (
+    ROOT
+    / "config"
+    / "profile.json"
 )
 
 MAX_EMAILS_PER_RUN = int(
@@ -55,13 +47,19 @@ MAX_EMAILS_PER_RUN = int(
     )
 )
 
+MAX_APIFY_CALLS_PER_RUN = 1
+
 
 def load_profile() -> dict:
+
     with PROFILE_PATH.open(
         "r",
         encoding="utf-8",
     ) as file:
-        return json.load(file)
+
+        return json.load(
+            file
+        )
 
 
 def discover_recruiters(
@@ -70,10 +68,24 @@ def discover_recruiters(
 ) -> list[dict]:
 
     print()
-    print("RECRUITER DISCOVERY")
+    print(
+        "RECRUITER DISCOVERY"
+    )
 
-    raw_recruiters = search_recruiters(
-        profile
+    raw_recruiters = (
+        search_recruiters(
+            profile
+        )
+    )
+
+    state[
+        "_run_apify_calls"
+    ] = (
+        state.get(
+            "_run_apify_calls",
+            0,
+        )
+        + 1
     )
 
     increment_stat(
@@ -84,20 +96,27 @@ def discover_recruiters(
     recruiters = []
 
     for raw in raw_recruiters:
-        recruiter = normalize_recruiter(
-            raw
+
+        recruiter = (
+            normalize_recruiter(
+                raw
+            )
         )
 
-        recruiter = enrich_recruiter(
-            recruiter
+        recruiter = (
+            enrich_recruiter(
+                recruiter
+            )
         )
 
         recruiters.append(
             recruiter
         )
 
-    recruiters = deduplicate_recruiters(
-        recruiters
+    recruiters = (
+        deduplicate_recruiters(
+            recruiters
+        )
     )
 
     increment_stat(
@@ -112,82 +131,6 @@ def discover_recruiters(
     )
 
     return recruiters
-
-
-def get_jobs(
-    state: dict,
-) -> list[dict]:
-
-    print()
-    print("JOB DISCOVERY")
-
-    if job_cache_is_fresh(
-        state,
-        JOB_CACHE_TTL_HOURS,
-    ):
-        jobs = get_cached_jobs(
-            state
-        )
-
-        print(
-            "Using cached job data."
-        )
-
-        print(
-            f"Cached relevant jobs: "
-            f"{len(jobs)}"
-        )
-
-        return jobs
-
-    print(
-        "Job cache expired or empty."
-    )
-
-    print(
-        "Refreshing global AI job cache..."
-    )
-
-    current_calls = state[
-        "statistics"
-    ].get(
-        "apify_calls",
-        0,
-    )
-
-    run_calls = state.get(
-        "_run_apify_calls",
-        0,
-    )
-
-    if run_calls >= MAX_APIFY_CALLS:
-        raise RuntimeError(
-            "Apify per-run safety limit "
-            "reached before job discovery."
-        )
-
-    jobs = search_jobs()
-
-    state["_run_apify_calls"] = (
-        run_calls + 1
-    )
-
-    increment_stat(
-        state,
-        "apify_calls",
-    )
-
-    set_job_cache(
-        state,
-        jobs,
-    )
-
-    print(
-        f"Fresh relevant jobs: "
-        f"{len(jobs)}"
-    )
-
-    return jobs
 
 
 def recruiter_has_valid_email(
@@ -215,14 +158,13 @@ def recruiter_has_valid_email(
 
 def qualify_recruiters(
     recruiters: list[dict],
-    jobs: list[dict],
     profile: dict,
     state: dict,
-) -> list[tuple[dict, object]]:
+) -> list[tuple]:
 
     print()
     print(
-        "RECRUITER + JOB MATCHING"
+        "RECRUITER QUALIFICATION"
     )
 
     qualified = []
@@ -240,31 +182,18 @@ def qualify_recruiters(
         ):
             continue
 
-        company = str(
-            recruiter.get(
-                "company",
-                "",
+        match = (
+            calculate_recruiter_match(
+                recruiter,
+                [],
+                profile,
             )
-        ).strip()
-
-        if not company:
-            continue
-
-        matching_jobs = jobs_for_company(
-            jobs,
-            company,
         )
 
-        if not matching_jobs:
-            continue
-
-        match = calculate_recruiter_match(
-            recruiter,
-            matching_jobs,
-            profile,
-        )
-
-        if match.recommendation != "OUTREACH":
+        if (
+            match.recommendation
+            != "OUTREACH"
+        ):
             continue
 
         qualified.append(
@@ -275,7 +204,9 @@ def qualify_recruiters(
         )
 
     qualified.sort(
-        key=lambda item: item[1].score,
+        key=lambda item: (
+            item[1].score
+        ),
         reverse=True,
     )
 
@@ -298,7 +229,9 @@ def print_recruiter(
     match,
 ) -> None:
 
-    print("-" * 70)
+    print(
+        "-" * 70
+    )
 
     print(
         f"Recruiter: "
@@ -330,42 +263,6 @@ def print_recruiter(
         f"{match.score}"
     )
 
-    if match.matching_jobs:
-
-        print("Matching jobs:")
-
-        for job in match.matching_jobs[:3]:
-
-            print(
-                f"  - "
-                f"{job.get('title', 'Unknown')} "
-                f"| "
-                f"{job.get('location', 'Unknown')}"
-            )
-
-            if job.get("url"):
-                print(
-                    f"    {job['url']}"
-                )
-
-    if match.project_matches:
-
-        print(
-            "Relevant projects: "
-            + ", ".join(
-                match.project_matches[:5]
-            )
-        )
-
-    if match.skill_matches:
-
-        print(
-            "Relevant skills: "
-            + ", ".join(
-                match.skill_matches[:8]
-            )
-        )
-
 
 def send_to_recruiter(
     recruiter: dict,
@@ -379,10 +276,12 @@ def send_to_recruiter(
         "candidate"
     ]
 
-    template_name = choose_template(
-        recruiter,
-        match,
-        index,
+    template_name = (
+        choose_template(
+            recruiter,
+            match,
+            index,
+        )
     )
 
     personalization = (
@@ -393,19 +292,25 @@ def send_to_recruiter(
         )
     )
 
-    subject, body = render_template(
-        template_name=template_name,
-        recruiter=recruiter,
-        match=match,
-        candidate=candidate,
-        personalization=personalization,
+    subject, body = (
+        render_template(
+            template_name=template_name,
+            recruiter=recruiter,
+            match=match,
+            candidate=candidate,
+            personalization=personalization,
+        )
     )
 
-    resume_path = ROOT / candidate[
-        "resume_path"
-    ]
+    resume_path = (
+        ROOT
+        / candidate[
+            "resume_path"
+        ]
+    )
 
     if not resume_path.exists():
+
         raise FileNotFoundError(
             "Resume not found at: "
             f"{resume_path}"
@@ -444,7 +349,7 @@ def send_to_recruiter(
         )
 
         print(
-            f"EMAIL SENT: "
+            "EMAIL SENT: "
             f"{recruiter.get('email')}"
         )
 
@@ -453,7 +358,7 @@ def send_to_recruiter(
     except Exception as exc:
 
         print(
-            f"EMAIL FAILED: "
+            "EMAIL FAILED: "
             f"{recruiter.get('email')}"
         )
 
@@ -480,17 +385,28 @@ def send_to_recruiter(
 
 def main() -> None:
 
-    print("=" * 70)
-    print("AI RECRUITER HUNTER")
-    print("=" * 70)
-
-    profile = load_profile()
-    state = load_state()
-
-    state["_run_apify_calls"] = 0
+    print(
+        "=" * 70
+    )
 
     print(
-        f"Candidate: "
+        "AI RECRUITER HUNTER"
+    )
+
+    print(
+        "=" * 70
+    )
+
+    profile = load_profile()
+
+    state = load_state()
+
+    state[
+        "_run_apify_calls"
+    ] = 0
+
+    print(
+        "Candidate: "
         f"{profile['candidate']['name']}"
     )
 
@@ -506,52 +422,50 @@ def main() -> None:
     )
 
     print(
-        f"Apify limit this run: "
-        f"{MAX_APIFY_CALLS}"
+        "Apify limit this run: 1"
     )
 
-    print(
-        f"Job cache TTL: "
-        f"{JOB_CACHE_TTL_HOURS} hours"
-    )
-
-    recruiters = discover_recruiters(
-        profile,
-        state,
-    )
-
-    jobs = get_jobs(
-        state
+    recruiters = (
+        discover_recruiters(
+            profile,
+            state,
+        )
     )
 
     run_calls = state[
         "_run_apify_calls"
     ]
 
-    if run_calls > MAX_APIFY_CALLS:
+    if (
+        run_calls
+        > MAX_APIFY_CALLS_PER_RUN
+    ):
+
         raise RuntimeError(
             "Apify API budget exceeded: "
             f"{run_calls} > "
-            f"{MAX_APIFY_CALLS}"
+            f"{MAX_APIFY_CALLS_PER_RUN}"
         )
 
-    candidates = qualify_recruiters(
-        recruiters,
-        jobs,
-        profile,
-        state,
+    candidates = (
+        qualify_recruiters(
+            recruiters,
+            profile,
+            state,
+        )
     )
 
     print()
     print(
         f"Apify calls this run: "
         f"{run_calls}/"
-        f"{MAX_APIFY_CALLS}"
+        f"{MAX_APIFY_CALLS_PER_RUN}"
     )
 
     if not candidates:
 
         print()
+
         print(
             "No qualified new recruiters "
             "found."
@@ -573,9 +487,9 @@ def main() -> None:
         "TOP RECRUITER MATCHES"
     )
 
-    for recruiter, match in candidates[
-        :10
-    ]:
+    for recruiter, match in (
+        candidates[:10]
+    ):
 
         print_recruiter(
             recruiter,
@@ -598,6 +512,7 @@ def main() -> None:
     ) in enumerate(selected):
 
         print()
+
         print(
             f"OUTREACH "
             f"{index + 1}/"
@@ -626,9 +541,18 @@ def main() -> None:
     )
 
     print()
-    print("=" * 70)
-    print("RUN COMPLETE")
-    print("=" * 70)
+
+    print(
+        "=" * 70
+    )
+
+    print(
+        "RUN COMPLETE"
+    )
+
+    print(
+        "=" * 70
+    )
 
     print(
         f"Apify calls this run: "
