@@ -20,9 +20,6 @@ htmlcov/
 
 *.log
 
-data/state.json
-data/state.json.tmp
-
 credentials.json
 token.json
 client_secret*.json
