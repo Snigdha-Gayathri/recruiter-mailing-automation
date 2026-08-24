@@ -11,6 +11,28 @@ APIFY_BASE_URL = "https://api.apify.com/v2"
 DEFAULT_ACTOR_ID = "harvestapi/linkedin-profile-search"
 
 
+# Do not use a generic fuzzy search such as "Recruiter".
+# HarvestAPI supports strict currentJobTitles filtering, which is
+# substantially more reliable for recruiter discovery.
+RECRUITER_CURRENT_JOB_TITLES = [
+    "Recruiter",
+    "Technical Recruiter",
+    "Senior Technical Recruiter",
+    "Lead Technical Recruiter",
+    "Engineering Recruiter",
+    "IT Recruiter",
+    "Technology Recruiter",
+    "Tech Recruiter",
+    "Talent Acquisition Partner",
+    "Talent Acquisition Specialist",
+    "Talent Acquisition Manager",
+    "Technical Sourcer",
+    "Talent Sourcer",
+    "Recruiting Lead",
+    "Head of Recruitment",
+]
+
+
 RECRUITER_SEARCH_QUERIES = [
     "Recruiter",
     "Technical Recruiter",
@@ -25,45 +47,24 @@ RECRUITER_SEARCH_QUERIES = [
 ]
 
 
+# Recruiter discovery is focused on actual Indian tech hubs.
+# "Remote" is intentionally not used as a recruiter location because
+# it is a job-workplace concept, not a reliable LinkedIn people location.
 TARGET_LOCATIONS = [
     "Bengaluru",
+    "Bangalore",
     "Hyderabad",
     "Mumbai",
-    "Bangalore",
-    "Remote",
 ]
 
 
+# Kept for compatibility with main.py and recruiter_search_state.json.
+# The actual actor call below uses all titles and all locations at once.
 RECRUITER_SEARCH_SEGMENTS = [
-    ("Recruiter", "Bengaluru"),
-    ("Recruiter", "Hyderabad"),
-    ("Recruiter", "Mumbai"),
-    ("Recruiter", "Bangalore"),
-    ("Recruiter", "Remote"),
-    ("Technical Recruiter", "Bengaluru"),
-    ("Technical Recruiter", "Hyderabad"),
-    ("Technical Recruiter", "Mumbai"),
-    ("Engineering Recruiter", "Bengaluru"),
-    ("Engineering Recruiter", "Hyderabad"),
-    ("Engineering Recruiter", "Mumbai"),
-    ("IT Recruiter", "Bengaluru"),
-    ("IT Recruiter", "Hyderabad"),
-    ("IT Recruiter", "Mumbai"),
-    ("Talent Acquisition", "Bengaluru"),
-    ("Talent Acquisition", "Hyderabad"),
-    ("Talent Acquisition", "Mumbai"),
-    ("Talent Acquisition Partner", "Bengaluru"),
-    ("Talent Acquisition Partner", "Hyderabad"),
-    ("Talent Acquisition Partner", "Mumbai"),
-    ("Technology Recruiter", "Bengaluru"),
-    ("Technology Recruiter", "Hyderabad"),
-    ("Technology Recruiter", "Mumbai"),
-    ("Technical Sourcer", "Bengaluru"),
-    ("Technical Sourcer", "Hyderabad"),
-    ("Technical Sourcer", "Mumbai"),
-    ("Talent Sourcer", "Bengaluru"),
-    ("Talent Sourcer", "Hyderabad"),
-    ("Talent Sourcer", "Mumbai"),
+    (
+        "Technical Recruiter",
+        "Bengaluru, Bangalore, Hyderabad, Mumbai",
+    ),
 ]
 
 
@@ -174,6 +175,7 @@ def _get_email(
     for item in emails:
         if isinstance(item, str):
             value = item
+
         elif isinstance(item, dict):
             value = (
                 item.get("email")
@@ -181,10 +183,14 @@ def _get_email(
                 or item.get("address")
                 or ""
             )
+
         else:
             value = ""
 
-        if isinstance(value, str) and "@" in value:
+        if (
+            isinstance(value, str)
+            and "@" in value
+        ):
             return value.strip().lower()
 
     return ""
@@ -334,6 +340,7 @@ def normalize_recruiter(
 
     return {
         **profile,
+
         "name": (
             name
             or str(
@@ -343,16 +350,22 @@ def normalize_recruiter(
                 )
             ).strip()
         ),
+
         "title": _get_title(profile),
+
         "company": _get_company(profile),
+
         "location": _get_location(profile),
+
         "email": _get_email(profile),
+
         "linkedinUrl": str(
             profile.get(
                 "linkedinUrl",
                 "",
             )
         ).strip(),
+
         "job_description": str(
             position.get(
                 "description",
@@ -366,6 +379,7 @@ def deduplicate_recruiters(
     recruiters: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     seen: set[str] = set()
+
     result: list[dict[str, Any]] = []
 
     for recruiter in recruiters:
@@ -382,6 +396,7 @@ def deduplicate_recruiters(
             continue
 
         seen.add(key)
+
         result.append(recruiter)
 
     return result
@@ -393,10 +408,17 @@ def score_recruiter(
     recruiter = normalize_recruiter(profile)
 
     text = _flatten_profile(recruiter)
-    title = _normalise(recruiter["title"])
-    location = _normalise(recruiter["location"])
+
+    title = _normalise(
+        recruiter["title"]
+    )
+
+    location = _normalise(
+        recruiter["location"]
+    )
 
     score = 0.0
+
     reasons: list[str] = []
 
     title_hits = _contains_any(
@@ -449,13 +471,19 @@ def score_recruiter(
         for city in TARGET_LOCATIONS
     ):
         score += 10
-        reasons.append("Target location")
+
+        reasons.append(
+            "Target location"
+        )
 
     email = recruiter["email"]
 
     if email:
         score += 10
-        reasons.append("Email available")
+
+        reasons.append(
+            "Email available"
+        )
 
     irrelevant_hits = _contains_any(
         text,
@@ -470,11 +498,16 @@ def score_recruiter(
 
         reasons.append(
             "Irrelevant-domain signals: "
-            + ", ".join(irrelevant_hits[:4])
+            + ", ".join(
+                irrelevant_hits[:4]
+            )
         )
 
-    if profile.get("recentlyPostedOnLinkedIn"):
+    if profile.get(
+        "recentlyPostedOnLinkedIn"
+    ):
         score += 5
+
         reasons.append(
             "Recently active on LinkedIn"
         )
@@ -490,11 +523,22 @@ def score_recruiter(
             ),
             2,
         ),
+
         "reasons": reasons,
+
         "email": email,
-        "location": recruiter["location"],
-        "company": recruiter["company"],
-        "title": recruiter["title"],
+
+        "location": recruiter[
+            "location"
+        ],
+
+        "company": recruiter[
+            "company"
+        ],
+
+        "title": recruiter[
+            "title"
+        ],
     }
 
 
@@ -502,25 +546,28 @@ def is_qualified_recruiter(
     profile: dict[str, Any],
     minimum_score: float = 45.0,
 ) -> bool:
-    result = score_recruiter(profile)
+    result = score_recruiter(
+        profile
+    )
 
     if result["score"] < minimum_score:
         return False
 
-    title = _normalise(result["title"])
-    text = _flatten_profile(profile)
-
-    has_recruiter_signal = bool(
-        _contains_any(
-            title,
-            RECRUITER_TITLE_KEYWORDS,
-        )
+    title = _normalise(
+        result["title"]
     )
 
-    if not has_recruiter_signal:
+    text = _flatten_profile(
+        profile
+    )
+
+    if not _contains_any(
+        title,
+        RECRUITER_TITLE_KEYWORDS,
+    ):
         return False
 
-    has_technical_signal = bool(
+    if not (
         _contains_any(
             text,
             TARGET_ROLE_KEYWORDS,
@@ -529,11 +576,11 @@ def is_qualified_recruiter(
             text,
             TECHNICAL_KEYWORDS,
         )
-    )
-
-    if not has_technical_signal:
+    ):
         return False
 
+    # We ultimately need an actual address because this pipeline
+    # sends email. Never fabricate an address.
     if not result["email"]:
         return False
 
@@ -564,16 +611,24 @@ def qualify_recruiters(
         ):
             continue
 
-        recruiter = normalize_recruiter(profile)
-
-        recruiter["_match"] = score_recruiter(
+        recruiter = normalize_recruiter(
             profile
         )
 
-        qualified.append(recruiter)
+        recruiter["_match"] = (
+            score_recruiter(
+                profile
+            )
+        )
+
+        qualified.append(
+            recruiter
+        )
 
     qualified.sort(
-        key=lambda item: item["_match"]["score"],
+        key=lambda item: item[
+            "_match"
+        ]["score"],
         reverse=True,
     )
 
@@ -585,7 +640,9 @@ def _run_apify_actor(
     actor_input: dict[str, Any],
     timeout_seconds: int = 120,
 ) -> list[dict[str, Any]]:
-    token = os.getenv("APIFY_API_TOKEN")
+    token = os.getenv(
+        "APIFY_API_TOKEN"
+    )
 
     if not token:
         raise RuntimeError(
@@ -601,12 +658,17 @@ def _run_apify_actor(
     response = requests.post(
         f"{APIFY_BASE_URL}/acts/"
         f"{encoded_actor_id}/runs",
+
         params={
             "token": token,
             "waitForFinish": timeout_seconds,
         },
+
         json=actor_input,
-        timeout=timeout_seconds + 30,
+
+        timeout=(
+            timeout_seconds + 30
+        ),
     )
 
     response.raise_for_status()
@@ -630,11 +692,13 @@ def _run_apify_actor(
     dataset_response = requests.get(
         f"{APIFY_BASE_URL}/datasets/"
         f"{dataset_id}/items",
+
         params={
             "token": token,
             "format": "json",
             "clean": "true",
         },
+
         timeout=60,
     )
 
@@ -642,13 +706,19 @@ def _run_apify_actor(
 
     items = dataset_response.json()
 
-    if not isinstance(items, list):
+    if not isinstance(
+        items,
+        list,
+    ):
         return []
 
     return [
         item
         for item in items
-        if isinstance(item, dict)
+        if isinstance(
+            item,
+            dict,
+        )
     ]
 
 
@@ -660,51 +730,78 @@ def search_recruiters(
     search_location: str | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Perform exactly one Apify recruiter search.
+    Perform exactly ONE Apify recruiter search.
 
-    search_query and search_location are explicit so the caller
-    cannot accidentally select a query from one state index and
-    a location from another.
+    The old implementation searched:
+
+        searchQuery = "Recruiter"
+        locations = ["one city"]
+
+    That was producing zero-result runs.
+
+    HarvestAPI supports currentJobTitles directly. We therefore
+    search recruiter titles and all relevant target cities in one
+    call. This keeps the one-call-per-run budget intact.
     """
+
+    del candidate_profile
+    del search_index
+    del search_query
+    del search_location
 
     actor_id = os.getenv(
         "APIFY_RECRUITER_ACTOR",
         DEFAULT_ACTOR_ID,
     )
 
-    if search_query is None:
-        search_query = (
-            RECRUITER_SEARCH_QUERIES[
-                search_index
-                % len(RECRUITER_SEARCH_QUERIES)
-            ]
-        )
-
-    if search_location is None:
-        search_location = (
-            TARGET_LOCATIONS[
-                search_index
-                % len(TARGET_LOCATIONS)
-            ]
-        )
-
     print(
         f"Using Apify actor: {actor_id}"
+    )
+
+    print(
+        "Recruiter discovery mode: "
+        "currentJobTitles + locations"
+    )
+
+    print(
+        "Recruiter titles: "
+        + ", ".join(
+            RECRUITER_CURRENT_JOB_TITLES
+        )
+    )
+
+    print(
+        "Recruiter locations: "
+        + ", ".join(
+            TARGET_LOCATIONS
+        )
     )
 
     actor_input = {
         "profileScraperMode": (
             "Full + email search"
         ),
-        "searchQuery": search_query,
-        "locations": [search_location],
+
+        "currentJobTitles": (
+            RECRUITER_CURRENT_JOB_TITLES
+        ),
+
+        "locations": TARGET_LOCATIONS,
+
         "maxItems": max_results,
+
         "startPage": 1,
+
         "takePages": 1,
     }
 
-    print("Apify input:")
-    print(actor_input)
+    print(
+        "Apify input:"
+    )
+
+    print(
+        actor_input
+    )
 
     results = _run_apify_actor(
         actor_id=actor_id,
@@ -714,5 +811,29 @@ def search_recruiters(
     print(
         f"Results: {len(results)}"
     )
+
+    email_count = sum(
+        1
+        for item in results
+        if _get_email(item)
+    )
+
+    print(
+        "Profiles with discovered email: "
+        f"{email_count}"
+    )
+
+    if not results:
+        print(
+            "WARNING: HarvestAPI returned "
+            "zero recruiter profiles."
+        )
+
+    elif email_count == 0:
+        print(
+            "WARNING: Recruiter profiles were "
+            "found, but HarvestAPI did not return "
+            "an email for any of them."
+        )
 
     return results
