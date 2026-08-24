@@ -2,6 +2,15 @@ name: AI Recruiter Hunter
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "Choose what this run should do"
+        required: true
+        default: "recruiter"
+        type: choice
+        options:
+          - recruiter
+          - refresh_jobs
 
   schedule:
     - cron: "0 * * * *"
@@ -32,27 +41,99 @@ jobs:
           python tests/test_matching.py
 
       - name: Run recruiter hunter
+        if: github.event_name == 'schedule' || inputs.mode == 'recruiter'
         env:
           APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
           APIFY_RECRUITER_ACTOR: "harvestapi/linkedin-profile-search"
-          APIFY_JOB_ACTOR: "bebity/linkedin-jobs-scraper"
-          MAX_EMAILS_PER_RUN: "5"
           MAX_APIFY_CALLS_PER_RUN: "1"
+          MAX_EMAILS_PER_RUN: "5"
           STATE_PATH: "data/state.json"
-          JOB_CACHE_PATH: "data/job_cache.json"
-          JOB_CACHE_TTL_SECONDS: "21600"
-          RECRUITER_MAX_RESULTS: "25"
         run: |
           python src/main.py
 
-      - name: Persist automation state
+      - name: Run job cache refresh
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'refresh_jobs'
+        env:
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+          APIFY_JOB_ACTOR: "bebity/linkedin-jobs-scraper"
+          MAX_APIFY_CALLS_PER_RUN: "1"
+          STATE_PATH: "data/state.json"
+        run: |
+          python -c "
+          from pathlib import Path
+          import os
+          import sys
+
+          sys.path.insert(0, 'src')
+
+          from discovery.jobs import search_jobs
+          from storage.database import load_state, get_cached_jobs, set_job_cache
+
+          state = load_state()
+
+          print('JOB CACHE REFRESH')
+          print('Apify limit this run: 1')
+
+          jobs = search_jobs(max_results=100)
+
+          existing = get_cached_jobs(state)
+
+          combined = existing + jobs
+
+          deduped = {}
+
+          for job in combined:
+              url = str(job.get('url', '')).strip()
+
+              key = (
+                  url
+                  or '|'.join(
+                      [
+                          str(job.get('title', '')).lower(),
+                          str(job.get('companyName', job.get('company', ''))).lower(),
+                          str(job.get('location', '')).lower(),
+                      ]
+                  )
+              )
+
+              if key:
+                  deduped[key] = job
+
+          set_job_cache(
+              state,
+              list(deduped.values())
+          )
+
+          state.setdefault(
+              'statistics',
+              {}
+          )
+
+          state['statistics']['jobs_cached'] = len(
+              deduped
+          )
+
+          state['statistics']['apify_calls'] = (
+              state['statistics'].get('apify_calls', 0)
+              + 1
+          )
+
+          from storage.database import save_state
+
+          save_state(state)
+
+          print(f'New jobs: {len(jobs)}')
+          print(f'Total cached jobs: {len(deduped)}')
+          "
+
+      - name: Commit updated state
         if: always()
         run: |
-          if [ -f data/state.json ] || [ -f data/job_cache.json ]; then
+          if [ -f data/state.json ] || [ -f data/recruiter_search_state.json ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            git add data/state.json data/job_cache.json 2>/dev/null || true
+            git add data/state.json data/recruiter_search_state.json 2>/dev/null || true
 
             if git diff --cached --quiet; then
               echo "No state changes to commit."
