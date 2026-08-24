@@ -1,73 +1,450 @@
 from __future__ import annotations
 
 import os
-import re
+import random
+import time
 from typing import Any
 
 import requests
 
 
-APIFY_API_TOKEN = os.getenv(
-    "APIFY_API_TOKEN",
-    "",
-)
-
-APIFY_ACTOR = os.getenv(
-    "APIFY_RECRUITER_ACTOR",
-    "harvestapi/linkedin-profile-search",
-)
-
 APIFY_BASE_URL = "https://api.apify.com/v2"
+DEFAULT_ACTOR_ID = "harvestapi/linkedin-profile-search"
+
+RECRUITER_SEARCH_SEGMENTS = [
+    "Recruiter",
+    "Technical Recruiter",
+    "Talent Acquisition",
+    "Talent Acquisition Partner",
+    "Technical Talent Acquisition",
+    "Talent Sourcer",
+    "Technical Sourcer",
+    "IT Recruiter",
+    "Engineering Recruiter",
+    "AI Recruiter",
+    "Machine Learning Recruiter",
+    "Talent Acquisition Specialist",
+]
+
+TARGET_LOCATIONS = [
+    "Bengaluru",
+    "Bangalore",
+    "Mumbai",
+    "Hyderabad",
+]
+
+RECRUITER_TITLE_KEYWORDS = {
+    "recruiter",
+    "recruiting",
+    "talent acquisition",
+    "talent partner",
+    "talent sourcer",
+    "sourcer",
+    "headhunter",
+    "technical recruiter",
+    "engineering recruiter",
+    "recruitment",
+}
+
+TECHNICAL_RECRUITING_KEYWORDS = {
+    "software",
+    "technology",
+    "technical",
+    "engineering",
+    "engineer",
+    "developer",
+    "machine learning",
+    "artificial intelligence",
+    "artificial intelligence",
+    "ai",
+    "ml",
+    "data science",
+    "data scientist",
+    "generative ai",
+    "genai",
+    "llm",
+    "rag",
+    "nlp",
+    "cloud",
+    "devops",
+    "platform",
+    "backend",
+    "frontend",
+    "full stack",
+}
+
+TARGET_ROLE_KEYWORDS = {
+    "ai engineer",
+    "machine learning engineer",
+    "ml engineer",
+    "generative ai",
+    "genai",
+    "llm engineer",
+    "rag engineer",
+    "ai agent",
+    "agentic ai",
+    "applied ai",
+    "artificial intelligence",
+    "machine learning",
+    "deep learning",
+    "nlp engineer",
+    "data scientist",
+    "mlops",
+    "llm",
+    "rag",
+    "langchain",
+    "langgraph",
+    "generative artificial intelligence",
+}
+
+IRRELEVANT_INDUSTRIES = {
+    "construction",
+    "real estate",
+    "architecture",
+    "hospitality",
+    "nursing",
+    "healthcare",
+    "clinical",
+    "medical",
+    "pharmaceutical",
+    "legal",
+    "automotive sales",
+    "retail",
+    "fashion",
+}
+
+IRRELEVANT_RECRUITING_KEYWORDS = {
+    "construction",
+    "architect",
+    "architecture",
+    "civil engineer",
+    "nurse",
+    "nursing",
+    "clinical",
+    "healthcare",
+    "hospitality",
+    "hotel",
+    "real estate",
+    "sales recruitment",
+    "blue collar",
+}
 
 
-def _actor_id() -> str:
-    return APIFY_ACTOR.replace("/", "~")
+def _normalise(value: Any) -> str:
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value.lower().strip()
+
+    return str(value).lower().strip()
 
 
-def _require_token() -> None:
-    if not APIFY_API_TOKEN:
+def _flatten_profile(profile: dict[str, Any]) -> str:
+    parts: list[str] = []
+
+    parts.append(_normalise(profile.get("headline")))
+    parts.append(_normalise(profile.get("about")))
+
+    location = profile.get("location") or {}
+
+    if isinstance(location, dict):
+        parts.append(_normalise(location.get("linkedinText")))
+        parts.append(_normalise(location.get("parsed", {}).get("text")))
+        parts.append(_normalise(location.get("parsed", {}).get("city")))
+        parts.append(_normalise(location.get("parsed", {}).get("state")))
+
+    current_positions = profile.get("currentPosition") or []
+
+    if isinstance(current_positions, list):
+        for position in current_positions:
+            if not isinstance(position, dict):
+                continue
+
+            parts.append(_normalise(position.get("position")))
+            parts.append(_normalise(position.get("description")))
+            parts.append(_normalise(position.get("companyName")))
+
+            company = position.get("company") or {}
+
+            if isinstance(company, dict):
+                parts.append(_normalise(company.get("name")))
+                parts.append(_normalise(company.get("description")))
+                parts.append(_normalise(company.get("tagline")))
+
+                industries = company.get("industries") or []
+
+                if isinstance(industries, list):
+                    for industry in industries:
+                        if isinstance(industry, dict):
+                            parts.append(_normalise(industry.get("name")))
+
+    top_skills = profile.get("topSkills") or []
+
+    if isinstance(top_skills, list):
+        parts.extend(_normalise(skill) for skill in top_skills)
+
+    return " ".join(part for part in parts if part)
+
+
+def _get_location(profile: dict[str, Any]) -> str:
+    location = profile.get("location") or {}
+
+    if isinstance(location, dict):
+        parsed = location.get("parsed") or {}
+
+        if isinstance(parsed, dict):
+            city = _normalise(parsed.get("city"))
+
+            if city:
+                return city
+
+            text = _normalise(parsed.get("text"))
+
+            if text:
+                return text
+
+        text = _normalise(location.get("linkedinText"))
+
+        if text:
+            return text
+
+    return ""
+
+
+def _get_current_company(profile: dict[str, Any]) -> str:
+    positions = profile.get("currentPosition") or []
+
+    if not isinstance(positions, list):
+        return ""
+
+    for position in positions:
+        if not isinstance(position, dict):
+            continue
+
+        company_name = position.get("companyName")
+
+        if company_name:
+            return str(company_name).strip()
+
+    return ""
+
+
+def _get_email(profile: dict[str, Any]) -> str:
+    emails = profile.get("emails") or []
+
+    if not isinstance(emails, list):
+        return ""
+
+    for email in emails:
+        if isinstance(email, str) and "@" in email:
+            return email.strip()
+
+        if isinstance(email, dict):
+            value = (
+                email.get("email")
+                or email.get("value")
+                or email.get("address")
+            )
+
+            if isinstance(value, str) and "@" in value:
+                return value.strip()
+
+    return ""
+
+
+def _get_recruiter_title(profile: dict[str, Any]) -> str:
+    positions = profile.get("currentPosition") or []
+
+    if isinstance(positions, list):
+        for position in positions:
+            if not isinstance(position, dict):
+                continue
+
+            title = position.get("position")
+
+            if title:
+                return str(title).strip()
+
+    headline = profile.get("headline")
+
+    if headline:
+        return str(headline).strip()
+
+    return ""
+
+
+def _contains_any(text: str, keywords: set[str]) -> list[str]:
+    return [
+        keyword
+        for keyword in keywords
+        if keyword in text
+    ]
+
+
+def score_recruiter(profile: dict[str, Any]) -> dict[str, Any]:
+    text = _flatten_profile(profile)
+    title = _normalise(_get_recruiter_title(profile))
+    location = _normalise(_get_location(profile))
+
+    score = 0.0
+    reasons: list[str] = []
+
+    recruiter_matches = _contains_any(
+        title,
+        RECRUITER_TITLE_KEYWORDS,
+    )
+
+    if recruiter_matches:
+        score += 25
+        reasons.append(
+            f"Recruiting title: {', '.join(recruiter_matches[:3])}"
+        )
+
+    technical_matches = _contains_any(
+        text,
+        TECHNICAL_RECRUITING_KEYWORDS,
+    )
+
+    if technical_matches:
+        score += min(25, len(technical_matches) * 5)
+        reasons.append(
+            f"Technical signals: {', '.join(technical_matches[:5])}"
+        )
+
+    target_matches = _contains_any(
+        text,
+        TARGET_ROLE_KEYWORDS,
+    )
+
+    if target_matches:
+        score += min(30, len(target_matches) * 7)
+        reasons.append(
+            f"Target-role signals: {', '.join(target_matches[:5])}"
+        )
+
+    location_matches = [
+        city
+        for city in TARGET_LOCATIONS
+        if city.lower() in location
+    ]
+
+    if location_matches:
+        score += 10
+        reasons.append(
+            f"Target location: {', '.join(location_matches)}"
+        )
+
+    email = _get_email(profile)
+
+    if email:
+        score += 10
+        reasons.append("Public email available")
+
+    irrelevant_matches = _contains_any(
+        text,
+        IRRELEVANT_RECRUITING_KEYWORDS,
+    )
+
+    if irrelevant_matches:
+        score -= min(40, len(irrelevant_matches) * 10)
+        reasons.append(
+            f"Irrelevant-domain signals: {', '.join(irrelevant_matches[:5])}"
+        )
+
+    return {
+        "score": round(max(0.0, min(100.0, score)), 2),
+        "reasons": reasons,
+        "email": email,
+        "location": _get_location(profile),
+        "company": _get_current_company(profile),
+        "title": _get_recruiter_title(profile),
+    }
+
+
+def is_qualified_recruiter(
+    profile: dict[str, Any],
+    minimum_score: float = 45.0,
+) -> bool:
+    result = score_recruiter(profile)
+
+    if result["score"] < minimum_score:
+        return False
+
+    title = _normalise(result["title"])
+    text = _flatten_profile(profile)
+
+    has_recruiter_signal = bool(
+        _contains_any(title, RECRUITER_TITLE_KEYWORDS)
+    )
+
+    has_target_signal = bool(
+        _contains_any(text, TARGET_ROLE_KEYWORDS)
+        or _contains_any(text, TECHNICAL_RECRUITING_KEYWORDS)
+    )
+
+    has_irrelevant_signal = bool(
+        _contains_any(text, IRRELEVANT_INDUSTRIES)
+    )
+
+    if not has_recruiter_signal:
+        return False
+
+    if not has_target_signal:
+        return False
+
+    if has_irrelevant_signal and result["score"] < 60:
+        return False
+
+    return True
+
+
+def _run_apify_actor(
+    actor_id: str,
+    actor_input: dict[str, Any],
+    timeout_seconds: int = 120,
+) -> list[dict[str, Any]]:
+    token = os.getenv("APIFY_API_TOKEN")
+
+    if not token:
         raise RuntimeError(
             "APIFY_API_TOKEN is not configured."
         )
 
+    actor_id = actor_id.strip()
 
-def _run_actor(
-    actor_input: dict[str, Any],
-) -> list[dict[str, Any]]:
-    _require_token()
+    if not actor_id:
+        raise RuntimeError(
+            "APIFY actor ID is empty."
+        )
 
-    actor_id = _actor_id()
+    encoded_actor_id = actor_id.replace("/", "~")
 
     url = (
         f"{APIFY_BASE_URL}/acts/"
-        f"{actor_id}/runs"
+        f"{encoded_actor_id}/runs"
     )
 
     response = requests.post(
         url,
         params={
-            "token": APIFY_API_TOKEN,
-            "waitForFinish": 120,
+            "token": token,
+            "waitForFinish": timeout_seconds,
         },
         json=actor_input,
-        timeout=180,
+        timeout=timeout_seconds + 30,
     )
 
     response.raise_for_status()
 
-    payload = response.json()
+    run_data = response.json().get("data") or {}
 
-    run = payload.get(
-        "data",
-        {},
-    )
-
-    dataset_id = run.get(
-        "defaultDatasetId"
-    )
+    dataset_id = run_data.get("defaultDatasetId")
 
     if not dataset_id:
         return []
+
+    print(f"Apify dataset: {dataset_id}")
 
     dataset_url = (
         f"{APIFY_BASE_URL}/datasets/"
@@ -77,851 +454,129 @@ def _run_actor(
     dataset_response = requests.get(
         dataset_url,
         params={
-            "token": APIFY_API_TOKEN,
+            "token": token,
+            "format": "json",
             "clean": "true",
         },
-        timeout=120,
+        timeout=60,
     )
 
     dataset_response.raise_for_status()
 
-    records = dataset_response.json()
+    data = dataset_response.json()
 
-    if not isinstance(records, list):
+    if not isinstance(data, list):
         return []
 
-    return records
-
-
-def _first(
-    record: dict[str, Any],
-    *keys: str,
-) -> Any:
-    for key in keys:
-        value = record.get(key)
-
-        if value not in (
-            None,
-            "",
-            [],
-            {},
-        ):
-            return value
-
-    return None
-
-
-def _string(
-    value: Any,
-) -> str:
-    if value is None:
-        return ""
-
-    if isinstance(value, str):
-        return value.strip()
-
-    return str(value).strip()
-
-
-def _normalise_text(
-    value: Any,
-) -> str:
-    text = _string(value)
-
-    text = re.sub(
-        r"\s+",
-        " ",
-        text,
-    )
-
-    return text.strip()
-
-
-def _extract_email(
-    record: dict[str, Any],
-) -> str:
-    direct_email = _first(
-        record,
-        "email",
-        "emailAddress",
-        "email_address",
-        "workEmail",
-    )
-
-    if isinstance(
-        direct_email,
-        str,
-    ):
-        return direct_email.strip().lower()
-
-    emails = record.get(
-        "emails",
-        [],
-    )
-
-    if isinstance(
-        emails,
-        list,
-    ):
-        for item in emails:
-            if isinstance(
-                item,
-                str,
-            ):
-                value = item.strip().lower()
-
-                if value:
-                    return value
-
-            elif isinstance(
-                item,
-                dict,
-            ):
-                value = _first(
-                    item,
-                    "email",
-                    "address",
-                    "value",
-                )
-
-                value = _string(
-                    value
-                ).lower()
-
-                if value:
-                    return value
-
-    return ""
-
-
-def _extract_location(
-    record: dict[str, Any],
-) -> str:
-    location = record.get(
-        "location"
-    )
-
-    if isinstance(
-        location,
-        str,
-    ):
-        return location.strip()
-
-    if isinstance(
-        location,
-        dict,
-    ):
-        parsed = location.get(
-            "parsed",
-            {},
-        )
-
-        if isinstance(
-            parsed,
-            dict,
-        ):
-            parsed_text = _first(
-                parsed,
-                "text",
-            )
-
-            if parsed_text:
-                return _string(
-                    parsed_text
-                )
-
-            city = _string(
-                parsed.get(
-                    "city"
-                )
-            )
-
-            state = _string(
-                parsed.get(
-                    "state"
-                )
-            )
-
-            country = _string(
-                parsed.get(
-                    "country"
-                )
-            )
-
-            return ", ".join(
-                value
-                for value in (
-                    city,
-                    state,
-                    country,
-                )
-                if value
-            )
-
-        linkedin_text = _first(
-            location,
-            "linkedinText",
-            "text",
-        )
-
-        if linkedin_text:
-            return _string(
-                linkedin_text
-            )
-
-    return _string(
-        _first(
-            record,
-            "city",
-            "locationText",
-        )
-    )
-
-
-def _extract_current_position(
-    record: dict[str, Any],
-) -> dict[str, Any]:
-    positions = record.get(
-        "currentPosition",
-        []
-    )
-
-    if isinstance(
-        positions,
-        dict,
-    ):
-        return positions
-
-    if isinstance(
-        positions,
-        list,
-    ):
-        for position in positions:
-            if isinstance(
-                position,
-                dict,
-            ):
-                return position
-
-    return {}
-
-
-def _extract_company(
-    record: dict[str, Any],
-) -> str:
-    current_position = _extract_current_position(
-        record
-    )
-
-    company = current_position.get(
-        "company"
-    )
-
-    if isinstance(
-        company,
-        dict,
-    ):
-        name = _first(
-            company,
-            "name",
-            "companyName",
-        )
-
-        if name:
-            return _string(
-                name
-            )
-
-    company_name = _first(
-        current_position,
-        "companyName",
-        "company_name",
-    )
-
-    if company_name:
-        return _string(
-            company_name
-        )
-
-    direct_company = _first(
-        record,
-        "company",
-        "companyName",
-        "company_name",
-        "currentCompany",
-    )
-
-    if isinstance(
-        direct_company,
-        dict,
-    ):
-        return _string(
-            _first(
-                direct_company,
-                "name",
-                "companyName",
-            )
-        )
-
-    return _string(
-        direct_company
-    )
-
-
-def _extract_title(
-    record: dict[str, Any],
-) -> str:
-    current_position = _extract_current_position(
-        record
-    )
-
-    position = _first(
-        current_position,
-        "position",
-        "title",
-        "jobTitle",
-    )
-
-    if position:
-        return _string(
-            position
-        )
-
-    return _string(
-        _first(
-            record,
-            "headline",
-            "title",
-            "jobTitle",
-            "job_title",
-            "occupation",
-        )
-    )
-
-
-def _extract_current_description(
-    record: dict[str, Any],
-) -> str:
-    current_position = _extract_current_position(
-        record
-    )
-
-    return _string(
-        _first(
-            current_position,
-            "description",
-        )
-    )
-
-
-def _extract_company_metadata(
-    record: dict[str, Any],
-) -> dict[str, Any]:
-    current_position = _extract_current_position(
-        record
-    )
-
-    company = current_position.get(
-        "company"
-    )
-
-    if not isinstance(
-        company,
-        dict,
-    ):
-        return {}
-
-    return company
-
-
-def _extract_recruiter_text(
-    record: dict[str, Any],
-) -> str:
-    current_position = _extract_current_position(
-        record
-    )
-
-    company = _extract_company_metadata(
-        record
-    )
-
-    fields = [
-        record.get(
-            "headline"
-        ),
-        record.get(
-            "about"
-        ),
-        record.get(
-            "topSkills"
-        ),
-        current_position.get(
-            "position"
-        ),
-        current_position.get(
-            "description"
-        ),
-        current_position.get(
-            "location"
-        ),
-        company.get(
-            "name"
-        ),
-        company.get(
-            "tagline"
-        ),
-        company.get(
-            "description"
-        ),
-        company.get(
-            "industries"
-        ),
-        company.get(
-            "specialities"
-        ),
+    return [
+        item
+        for item in data
+        if isinstance(item, dict)
     ]
 
-    flattened: list[str] = []
 
-    for field in fields:
-        if isinstance(
-            field,
-            list,
-        ):
-            flattened.extend(
-                _string(item)
-                for item in field
-                if item
-            )
-        elif isinstance(
-            field,
-            dict,
-        ):
-            flattened.extend(
-                _string(value)
-                for value in field.values()
-                if value
-            )
-        elif field:
-            flattened.append(
-                _string(field)
-            )
-
-    return _normalise_text(
-        " ".join(
-            flattened
-        )
-    )
-
-
-def _is_valid_email(
-    email: str,
-) -> bool:
-    if not email:
-        return False
-
-    return bool(
-        re.fullmatch(
-            r"[^@\s]+@[^@\s]+\.[^@\s]+",
-            email,
-        )
-    )
-
-
-def _normalise_recruiter(
-    record: dict[str, Any],
-) -> dict[str, Any]:
-    first_name = _string(
-        _first(
-            record,
-            "firstName",
-            "first_name",
-        )
-    )
-
-    last_name = _string(
-        _first(
-            record,
-            "lastName",
-            "last_name",
-        )
-    )
-
-    name = _string(
-        _first(
-            record,
-            "name",
-            "fullName",
-            "full_name",
-        )
-    )
-
-    if not name:
-        name = (
-            f"{first_name} {last_name}"
-        ).strip()
-
-    email = _extract_email(
-        record
-    )
-
-    location = _extract_location(
-        record
-    )
-
-    title = _extract_title(
-        record
-    )
-
-    company = _extract_company(
-        record
-    )
-
-    linkedin_url = _string(
-        _first(
-            record,
-            "linkedinUrl",
-            "linkedin_url",
-            "profileUrl",
-            "profile_url",
-            "url",
-        )
-    )
-
-    about = _string(
-        _first(
-            record,
-            "about",
-            "summary",
-            "description",
-        )
-    )
-
-    current_position = _extract_current_position(
-        record
-    )
-
-    company_metadata = _extract_company_metadata(
-        record
-    )
-
-    recruiter_text = _extract_recruiter_text(
-        record
-    )
-
-    return {
-        "name": name,
-        "email": email,
-        "email_valid": _is_valid_email(
-            email
-        ),
-        "corporate_email": _is_valid_email(
-            email
-        ),
-        "title": title,
-        "company": company,
-        "location": location,
-        "linkedin_url": linkedin_url,
-        "about": about,
-        "current_position": current_position,
-        "company_metadata": company_metadata,
-        "recruiter_text": recruiter_text,
-        "hiring": bool(
-            record.get(
-                "hiring",
-                False,
-            )
-        ),
-        "open_to_work": bool(
-            record.get(
-                "openToWork",
-                False,
-            )
-        ),
-        "raw": record,
-    }
-
-
-def _deduplicate(
-    recruiters: list[dict[str, Any]],
+def _deduplicate_profiles(
+    profiles: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     seen: set[str] = set()
+    unique: list[dict[str, Any]] = []
 
-    result: list[
-        dict[str, Any]
-    ] = []
-
-    for recruiter in recruiters:
-        email = _string(
-            recruiter.get(
-                "email"
-            )
-        ).lower()
-
-        linkedin = _string(
-            recruiter.get(
-                "linkedin_url"
-            )
-        ).lower()
-
-        name = _string(
-            recruiter.get(
-                "name"
-            )
-        ).lower()
-
-        key = (
-            email
-            or linkedin
-            or name
+    for profile in profiles:
+        identifier = (
+            profile.get("linkedinUrl")
+            or profile.get("publicIdentifier")
+            or profile.get("id")
+            or _get_email(profile)
         )
 
-        if not key:
+        if not identifier:
             continue
+
+        key = str(identifier).strip().lower()
 
         if key in seen:
             continue
 
         seen.add(key)
+        unique.append(profile)
 
-        result.append(
-            recruiter
-        )
-
-    return result
-
-
-def _recruiter_is_relevant(
-    recruiter: dict[str, Any],
-    profile: dict[str, Any],
-) -> bool:
-    text = _normalise_text(
-        " ".join(
-            [
-                recruiter.get(
-                    "title",
-                    ""
-                ),
-                recruiter.get(
-                    "company",
-                    ""
-                ),
-                recruiter.get(
-                    "location",
-                    ""
-                ),
-                recruiter.get(
-                    "about",
-                    ""
-                ),
-                recruiter.get(
-                    "recruiter_text",
-                    ""
-                ),
-            ]
-        )
-    ).lower()
-
-    target_roles = profile.get(
-        "targeting",
-        {},
-    ).get(
-        "roles",
-        [],
-    )
-
-    role_terms = [
-        "technical recruiter",
-        "technical sourcer",
-        "engineering recruiter",
-        "technology recruiter",
-        "it recruiter",
-        "talent acquisition",
-        "talent sourcer",
-        "recruiter",
-        "sourcer",
-        "hiring manager",
-        "talent partner",
-    ]
-
-    ai_terms = [
-        "ai",
-        "artificial intelligence",
-        "machine learning",
-        "ml",
-        "generative ai",
-        "genai",
-        "llm",
-        "rag",
-        "data science",
-        "software",
-        "engineering",
-        "technology",
-    ]
-
-    location_text = recruiter.get(
-        "location",
-        ""
-    ).lower()
-
-    target_locations = [
-        str(location).lower()
-        for location in profile.get(
-            "targeting",
-            {},
-        ).get(
-            "locations",
-            [],
-        )
-    ]
-
-    location_match = any(
-        location in location_text
-        or location_text in location
-        for location in target_locations
-        if location
-    )
-
-    recruiter_role_match = any(
-        term in text
-        for term in role_terms
-    )
-
-    ai_role_match = any(
-        term.lower() in text
-        for term in target_roles
-    )
-
-    ai_signal = any(
-        term in text
-        for term in ai_terms
-    )
-
-    remote_match = (
-        "remote" in text
-        or "remote" in location_text
-    )
-
-    return bool(
-        recruiter_role_match
-        and (
-            location_match
-            or remote_match
-            or ai_role_match
-            or ai_signal
-        )
-    )
+    return unique
 
 
 def search_recruiters(
-    profile: dict[str, Any],
+    candidate_profile: dict[str, Any],
     max_results: int = 25,
 ) -> list[dict[str, Any]]:
-    roles = profile.get(
-        "targeting",
-        {},
-    ).get(
-        "roles",
-        [],
+    actor_id = os.getenv(
+        "APIFY_RECRUITER_ACTOR",
+        DEFAULT_ACTOR_ID,
     )
 
-    locations = profile.get(
-        "targeting",
-        {},
-    ).get(
-        "locations",
-        [],
+    location = random.choice(TARGET_LOCATIONS)
+
+    search_query = os.getenv(
+        "RECRUITER_SEARCH_QUERY",
+        "Recruiter Talent Acquisition Technical Recruiter "
+        "Engineering Recruiter IT Recruiter AI ML GenAI LLM",
     )
 
-    if not roles:
-        roles = [
-            "AI Engineer",
-            "Machine Learning Engineer",
-            "Generative AI Engineer",
-            "LLM Engineer",
-            "RAG Engineer",
-        ]
-
-    if not locations:
-        locations = [
-            "Remote",
-            "Bengaluru",
-            "Mumbai",
-            "Hyderabad",
-        ]
-
-    search_query = (
-        "Technical Recruiter "
-        "Technical Sourcer "
-        "Engineering Recruiter "
-        "Talent Acquisition"
-    )
+    print("RECRUITER DISCOVERY")
+    print("Recruiter search strategy: ONE Apify call")
+    print(f"Search focus: {search_query}")
+    print(f"Search location: {location}")
+    print(f"Max recruiter records: {max_results}")
+    print(f"Using Apify actor: {actor_id}")
 
     actor_input = {
-        "profileScraperMode": (
-            "Full + email search"
-        ),
+        "profileScraperMode": "Full + email search",
         "searchQuery": search_query,
-        "locations": locations[:5],
+        "locations": [location],
         "maxItems": max_results,
         "startPage": 1,
         "takePages": 1,
     }
 
-    print(
-        "Using Apify actor: "
-        f"{APIFY_ACTOR}"
+    print("Apify input:")
+    print(actor_input)
+
+    profiles = _run_apify_actor(
+        actor_id=actor_id,
+        actor_input=actor_input,
     )
 
-    print(
-        "Apify input:"
-    )
+    print(f"Results: {len(profiles)}")
 
-    print(
-        actor_input
-    )
-
-    raw_records = _run_actor(
-        actor_input
-    )
+    unique_profiles = _deduplicate_profiles(profiles)
 
     print(
-        f"Raw recruiter records: "
-        f"{len(raw_records)}"
+        f"Unique recruiters: {len(unique_profiles)}"
     )
 
-    recruiters = [
-        _normalise_recruiter(
-            record
-        )
-        for record in raw_records
-        if isinstance(
-            record,
-            dict,
-        )
-    ]
+    return unique_profiles
 
-    recruiters = _deduplicate(
-        recruiters
-    )
 
-    print(
-        f"Unique recruiters: "
-        f"{len(recruiters)}"
-    )
+def qualify_recruiters(
+    profiles: list[dict[str, Any]],
+    minimum_score: float = 45.0,
+) -> list[dict[str, Any]]:
+    qualified: list[dict[str, Any]] = []
 
-    qualified = [
-        recruiter
-        for recruiter in recruiters
-        if _recruiter_is_relevant(
-            recruiter,
+    for profile in profiles:
+        scoring = score_recruiter(profile)
+
+        enriched = dict(profile)
+
+        enriched["_match"] = scoring
+
+        if is_qualified_recruiter(
             profile,
-        )
-    ]
+            minimum_score=minimum_score,
+        ):
+            qualified.append(enriched)
 
-    print(
-        f"Relevant recruiter records: "
-        f"{len(qualified)}"
+    qualified.sort(
+        key=lambda item: item["_match"]["score"],
+        reverse=True,
     )
 
     return qualified
