@@ -23,58 +23,83 @@ def get_apify_token() -> str:
 
 
 def get_actor_id() -> str:
-    configured_actor = os.getenv(
+    actor_id = os.getenv(
         "APIFY_RECRUITER_ACTOR",
-        ""
+        DEFAULT_ACTOR_ID
     ).strip()
 
-    if configured_actor:
-        return configured_actor
+    return actor_id or DEFAULT_ACTOR_ID
 
-    return DEFAULT_ACTOR_ID
+
+def build_recruiter_titles() -> list[str]:
+    return [
+        "Technical Recruiter",
+        "Technical Talent Acquisition",
+        "Talent Acquisition Partner",
+        "Talent Acquisition Specialist",
+        "Technical Sourcer",
+        "Talent Sourcer",
+        "Engineering Recruiter",
+        "IT Recruiter",
+        "Technology Recruiter",
+        "Senior Recruiter",
+        "Recruiter",
+        "Hiring Manager",
+        "Engineering Manager"
+    ]
+
+
+def build_locations(
+    profile: dict[str, Any]
+) -> list[str]:
+    configured_locations = (
+        profile
+        .get("targeting", {})
+        .get("locations", [])
+    )
+
+    location_map = {
+        "Bangalore": "Bengaluru",
+        "Bengaluru": "Bengaluru",
+        "Mumbai": "Mumbai",
+        "Hyderabad": "Hyderabad"
+    }
+
+    locations = []
+
+    for location in configured_locations:
+        mapped = location_map.get(
+            location,
+            location
+        )
+
+        if mapped == "Remote":
+            continue
+
+        if mapped not in locations:
+            locations.append(mapped)
+
+    return locations
 
 
 def build_search_queries(
     profile: dict[str, Any]
 ) -> list[str]:
-    roles = (
+    recruiter_titles = build_recruiter_titles()
+
+    locations = build_locations(
         profile
-        .get("targeting", {})
-        .get("roles", [])
     )
-
-    role_groups = [
-        "AI Engineer",
-        "Machine Learning Engineer",
-        "Generative AI Engineer",
-        "LLM Engineer",
-        "AI Agent Engineer",
-        "RAG Engineer",
-        "AI/ML Engineer"
-    ]
-
-    recruiter_titles = [
-        "Technical Recruiter",
-        "Technical Talent Acquisition",
-        "Talent Acquisition Partner",
-        "Engineering Recruiter",
-        "Technical Sourcer",
-        "Hiring Manager"
-    ]
-
-    selected_roles = [
-        role
-        for role in role_groups
-        if role in roles
-    ]
 
     queries = []
 
-    for recruiter_title in recruiter_titles:
-        for role in selected_roles:
+    for title in recruiter_titles:
+        for location in locations:
             queries.append(
-                f'"{recruiter_title}" "{role}" '
-                f'Bangalore OR Bengaluru OR Mumbai OR Hyderabad OR Remote'
+                {
+                    "searchQuery": title,
+                    "location": location
+                }
             )
 
     return queries
@@ -101,6 +126,19 @@ def run_apify_actor(
         f"Using Apify actor: {actor_id}"
     )
 
+    print(
+        "Apify input:"
+    )
+
+    safe_input = {
+        key: value
+        for key, value in run_input.items()
+    }
+
+    print(
+        safe_input
+    )
+
     response = requests.post(
         url,
         params={
@@ -112,13 +150,11 @@ def run_apify_actor(
     )
 
     if not response.ok:
-        error_text = response.text[:2000]
-
         raise RuntimeError(
             "Apify actor request failed.\n"
             f"HTTP status: {response.status_code}\n"
             f"Actor: {actor_id}\n"
-            f"Response: {error_text}"
+            f"Response: {response.text[:3000]}"
         )
 
     payload = response.json()
@@ -137,6 +173,10 @@ def run_apify_actor(
             "Apify run completed without a dataset ID.\n"
             f"Response: {payload}"
         )
+
+    print(
+        f"Apify dataset: {dataset_id}"
+    )
 
     dataset_url = (
         f"{APIFY_API_BASE}/datasets/"
@@ -158,7 +198,7 @@ def run_apify_actor(
             f"HTTP status: "
             f"{dataset_response.status_code}\n"
             f"Response: "
-            f"{dataset_response.text[:2000]}"
+            f"{dataset_response.text[:3000]}"
         )
 
     items = dataset_response.json()
@@ -171,49 +211,22 @@ def run_apify_actor(
     return items
 
 
-def search_recruiters(
-    profile: dict[str, Any]
+def search_one_recruiter_segment(
+    search_query: str,
+    location: str
 ) -> list[dict[str, Any]]:
     actor_id = get_actor_id()
 
-    if not actor_id:
-        raise RuntimeError(
-            "No Apify recruiter actor configured."
-        )
-
-    queries = build_search_queries(
-        profile
-    )
-
-    if not queries:
-        raise RuntimeError(
-            "No recruiter search queries could "
-            "be generated from profile.json."
-        )
-
-    # We intentionally keep discovery to one Apify
-    # actor execution per hourly workflow run.
-    combined_query = " OR ".join(
-        f"({query})"
-        for query in queries[:12]
-    )
-
     run_input = {
-        "searchQueries": [
-            combined_query
+        "profileScraperMode": "Full + email search",
+        "searchQuery": search_query,
+        "locations": [
+            location
         ],
-        "maxItems": 100,
-        "searchMode": "people",
-        "includeEmails": True
+        "maxItems": 25,
+        "startPage": 1,
+        "takePages": 1
     }
-
-    print(
-        f"Generated {len(queries)} recruiter queries."
-    )
-
-    print(
-        "Submitting one Apify discovery request..."
-    )
 
     return run_apify_actor(
         actor_id=actor_id,
@@ -221,57 +234,365 @@ def search_recruiters(
     )
 
 
+def search_recruiters(
+    profile: dict[str, Any]
+) -> list[dict[str, Any]]:
+    segments = build_search_queries(
+        profile
+    )
+
+    if not segments:
+        raise RuntimeError(
+            "No recruiter search segments "
+            "could be generated."
+        )
+
+    print(
+        f"Generated {len(segments)} "
+        "recruiter search segments."
+    )
+
+    # IMPORTANT:
+    #
+    # We intentionally do not execute all 42 segments
+    # in one hourly run. That would create unnecessary
+    # Apify usage.
+    #
+    # We rotate through segments based on the current
+    # GitHub Actions hour.
+    #
+    # Five segments per run gives us:
+    #
+    # 5 searches/hour
+    # 120 searches/day maximum
+    #
+    # The caller can later reduce this if needed.
+
+    from datetime import datetime, timezone
+
+    current_hour = datetime.now(
+        timezone.utc
+    ).hour
+
+    segment_count = len(segments)
+
+    start_index = (
+        current_hour * 5
+    ) % segment_count
+
+    selected_segments = []
+
+    for offset in range(
+        min(5, segment_count)
+    ):
+        index = (
+            start_index + offset
+        ) % segment_count
+
+        selected_segments.append(
+            segments[index]
+        )
+
+    print(
+        "Selected segments:"
+    )
+
+    for segment in selected_segments:
+        print(
+            f"  - {segment['searchQuery']} "
+            f"| {segment['location']}"
+        )
+
+    all_results = []
+
+    for segment in selected_segments:
+        print()
+        print(
+            f"Searching: "
+            f"{segment['searchQuery']} "
+            f"in {segment['location']}"
+        )
+
+        results = search_one_recruiter_segment(
+            search_query=segment["searchQuery"],
+            location=segment["location"]
+        )
+
+        print(
+            f"Results: {len(results)}"
+        )
+
+        all_results.extend(
+            results
+        )
+
+    return all_results
+
+
+def extract_email(
+    raw: dict[str, Any]
+) -> str:
+    possible_fields = [
+        "email",
+        "emailAddress",
+        "contactEmail",
+        "personalEmail",
+        "workEmail",
+        "professionalEmail"
+    ]
+
+    for field in possible_fields:
+        value = raw.get(field)
+
+        if isinstance(value, str):
+            value = value.strip().lower()
+
+            if value:
+                return value
+
+    return ""
+
+
+def extract_name(
+    raw: dict[str, Any]
+) -> str:
+    possible_fields = [
+        "name",
+        "fullName",
+        "full_name"
+    ]
+
+    for field in possible_fields:
+        value = raw.get(field)
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value:
+                return value
+
+    first_name = (
+        raw.get("firstName")
+        or raw.get("first_name")
+        or ""
+    )
+
+    last_name = (
+        raw.get("lastName")
+        or raw.get("last_name")
+        or ""
+    )
+
+    return (
+        f"{first_name} {last_name}"
+    ).strip()
+
+
+def extract_company(
+    raw: dict[str, Any]
+) -> str:
+    possible_fields = [
+        "company",
+        "companyName",
+        "currentCompany"
+    ]
+
+    for field in possible_fields:
+        value = raw.get(field)
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value:
+                return value
+
+    experiences = raw.get(
+        "experiences",
+        []
+    )
+
+    if isinstance(
+        experiences,
+        list
+    ):
+        for experience in experiences:
+            if not isinstance(
+                experience,
+                dict
+            ):
+                continue
+
+            company = (
+                experience.get("companyName")
+                or experience.get("company")
+                or ""
+            )
+
+            if company:
+                return str(
+                    company
+                ).strip()
+
+    return ""
+
+
+def extract_title(
+    raw: dict[str, Any]
+) -> str:
+    possible_fields = [
+        "headline",
+        "title",
+        "position",
+        "jobTitle"
+    ]
+
+    for field in possible_fields:
+        value = raw.get(field)
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value:
+                return value
+
+    experiences = raw.get(
+        "experiences",
+        []
+    )
+
+    if isinstance(
+        experiences,
+        list
+    ):
+        for experience in experiences:
+            if not isinstance(
+                experience,
+                dict
+            ):
+                continue
+
+            title = (
+                experience.get("title")
+                or experience.get("position")
+                or ""
+            )
+
+            if title:
+                return str(
+                    title
+                ).strip()
+
+    return ""
+
+
+def extract_location(
+    raw: dict[str, Any]
+) -> str:
+    possible_fields = [
+        "location",
+        "geoLocation",
+        "city",
+        "locationName"
+    ]
+
+    for field in possible_fields:
+        value = raw.get(field)
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value:
+                return value
+
+        if isinstance(value, dict):
+            city = (
+                value.get("city")
+                or ""
+            )
+
+            country = (
+                value.get("country")
+                or ""
+            )
+
+            combined = (
+                f"{city}, {country}"
+            ).strip(
+                ", "
+            )
+
+            if combined:
+                return combined
+
+    return ""
+
+
+def extract_linkedin_url(
+    raw: dict[str, Any]
+) -> str:
+    possible_fields = [
+        "linkedinUrl",
+        "linkedin_url",
+        "profileUrl",
+        "url"
+    ]
+
+    for field in possible_fields:
+        value = raw.get(field)
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if "linkedin.com" in value:
+                return value
+
+    return ""
+
+
+def extract_about(
+    raw: dict[str, Any]
+) -> str:
+    possible_fields = [
+        "about",
+        "summary",
+        "headline"
+    ]
+
+    values = []
+
+    for field in possible_fields:
+        value = raw.get(field)
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value:
+                values.append(
+                    value
+                )
+
+    return " ".join(
+        values
+    )
+
+
 def normalize_recruiter(
     raw: dict[str, Any]
 ) -> dict[str, Any]:
     return {
-        "name": (
-            raw.get("name")
-            or raw.get("fullName")
-            or raw.get("full_name")
-            or ""
-        ).strip(),
+        "name": extract_name(raw),
 
-        "email": (
-            raw.get("email")
-            or raw.get("emailAddress")
-            or raw.get("contactEmail")
-            or ""
-        ).strip().lower(),
+        "email": extract_email(raw),
 
-        "title": (
-            raw.get("headline")
-            or raw.get("title")
-            or raw.get("position")
-            or ""
-        ).strip(),
+        "title": extract_title(raw),
 
-        "company": (
-            raw.get("company")
-            or raw.get("companyName")
-            or raw.get("currentCompany")
-            or ""
-        ).strip(),
+        "company": extract_company(raw),
 
-        "location": (
-            raw.get("location")
-            or raw.get("geoLocation")
-            or raw.get("city")
-            or ""
-        ).strip(),
+        "location": extract_location(raw),
 
-        "linkedin_url": (
-            raw.get("linkedinUrl")
-            or raw.get("linkedin_url")
-            or raw.get("profileUrl")
-            or ""
-        ).strip(),
+        "linkedin_url": extract_linkedin_url(raw),
 
-        "about": (
-            raw.get("about")
-            or raw.get("summary")
-            or ""
-        ).strip(),
+        "about": extract_about(raw),
 
         "source": "apify",
 
@@ -283,6 +604,7 @@ def deduplicate_recruiters(
     recruiters: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     seen = set()
+
     result = []
 
     for recruiter in recruiters:
@@ -327,6 +649,9 @@ def deduplicate_recruiters(
             continue
 
         seen.add(key)
-        result.append(recruiter)
+
+        result.append(
+            recruiter
+        )
 
     return result
