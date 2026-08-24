@@ -1,6 +1,498 @@
 from __future__ import annotations
 
+import osfrom __future__ import annotations
+
 import os
+from typing import Any
+
+import requests
+
+
+APIFY_API_BASE = "https://api.apify.com/v2"
+
+DEFAULT_ACTOR_ID = "harvestapi~linkedin-profile-search"
+
+RECRUITER_TITLES = [
+    "Technical Recruiter",
+    "Engineering Recruiter",
+    "Technical Sourcer",
+    "Talent Sourcer",
+    "Talent Acquisition Partner",
+    "Talent Acquisition Specialist",
+    "Technical Talent Acquisition",
+    "Engineering Talent Acquisition",
+    "IT Recruiter",
+    "Technology Recruiter",
+    "Recruiter",
+]
+
+DEFAULT_LOCATIONS = [
+    "Bengaluru",
+    "Mumbai",
+    "Hyderabad",
+]
+
+
+def get_apify_token() -> str:
+    token = os.getenv("APIFY_API_TOKEN", "").strip()
+
+    if not token:
+        raise RuntimeError(
+            "APIFY_API_TOKEN is not configured."
+        )
+
+    return token
+
+
+def get_actor_id() -> str:
+    return os.getenv(
+        "APIFY_RECRUITER_ACTOR",
+        DEFAULT_ACTOR_ID,
+    ).strip() or DEFAULT_ACTOR_ID
+
+
+def get_search_location(
+    profile: dict[str, Any],
+) -> str:
+    configured = (
+        profile
+        .get("targeting", {})
+        .get("locations", [])
+    )
+
+    locations = []
+
+    for location in configured:
+        value = str(location).strip()
+
+        if not value:
+            continue
+
+        if value.lower() == "remote":
+            continue
+
+        if value not in locations:
+            locations.append(value)
+
+    if not locations:
+        locations = DEFAULT_LOCATIONS
+
+    # The workflow runs hourly.
+    # Rotate locations without making additional Apify calls.
+    hour = __import__("datetime").datetime.utcnow().hour
+
+    return locations[hour % len(locations)]
+
+
+def get_recruiter_titles(
+    profile: dict[str, Any],
+) -> list[str]:
+    configured = (
+        profile
+        .get("recruiter_targets", {})
+        .get("preferred_titles", [])
+    )
+
+    configured_clean = []
+
+    for title in configured:
+        value = str(title).strip()
+
+        if value and value not in configured_clean:
+            configured_clean.append(value)
+
+    if not configured_clean:
+        return RECRUITER_TITLES
+
+    preferred = []
+
+    for title in RECRUITER_TITLES:
+        if title in configured_clean:
+            preferred.append(title)
+
+    for title in configured_clean:
+        if title not in preferred:
+            preferred.append(title)
+
+    return preferred[:20]
+
+
+def build_run_input(
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    max_items_raw = os.getenv(
+        "RECRUITER_MAX_ITEMS",
+        "25",
+    ).strip()
+
+    try:
+        max_items = int(max_items_raw)
+    except ValueError:
+        max_items = 25
+
+    max_items = max(
+        1,
+        min(
+            max_items,
+            25,
+        ),
+    )
+
+    return {
+        "profileScraperMode": "Full + email search",
+        "currentJobTitles": get_recruiter_titles(
+            profile
+        ),
+        "locations": [
+            get_search_location(profile)
+        ],
+        "maxItems": max_items,
+        "startPage": 1,
+        "takePages": 1,
+    }
+
+
+def run_apify_actor(
+    actor_id: str,
+    run_input: dict[str, Any],
+) -> list[dict[str, Any]]:
+    token = get_apify_token()
+
+    encoded_actor_id = actor_id.replace(
+        "/",
+        "~",
+    )
+
+    url = (
+        f"{APIFY_API_BASE}/acts/"
+        f"{encoded_actor_id}/runs"
+    )
+
+    response = requests.post(
+        url,
+        params={
+            "token": token,
+            "waitForFinish": 120,
+        },
+        json=run_input,
+        timeout=300,
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            "Apify recruiter discovery failed: "
+            f"HTTP {response.status_code}: "
+            f"{response.text[:2000]}"
+        )
+
+    payload = response.json()
+
+    run_data = payload.get("data", {})
+
+    dataset_id = run_data.get(
+        "defaultDatasetId"
+    )
+
+    if not dataset_id:
+        raise RuntimeError(
+            "Apify recruiter run returned no dataset ID."
+        )
+
+    dataset_url = (
+        f"{APIFY_API_BASE}/datasets/"
+        f"{dataset_id}/items"
+    )
+
+    dataset_response = requests.get(
+        dataset_url,
+        params={
+            "token": token,
+            "clean": "true",
+        },
+        timeout=300,
+    )
+
+    if not dataset_response.ok:
+        raise RuntimeError(
+            "Failed to read recruiter dataset: "
+            f"HTTP {dataset_response.status_code}: "
+            f"{dataset_response.text[:2000]}"
+        )
+
+    items = dataset_response.json()
+
+    if not isinstance(items, list):
+        raise RuntimeError(
+            "Recruiter dataset was not a list."
+        )
+
+    print(
+        f"Apify dataset: {dataset_id}"
+    )
+
+    print(
+        f"Results: {len(items)}"
+    )
+
+    return items
+
+
+def search_recruiters(
+    profile: dict[str, Any],
+) -> list[dict[str, Any]]:
+    actor_id = get_actor_id()
+
+    run_input = build_run_input(
+        profile
+    )
+
+    print(
+        "Recruiter search strategy: "
+        "ONE Apify call"
+    )
+
+    print(
+        "Recruiter actor: "
+        f"{actor_id}"
+    )
+
+    print(
+        "Recruiter location: "
+        f"{run_input['locations'][0]}"
+    )
+
+    print(
+        "Recruiter title filters:"
+    )
+
+    for title in run_input[
+        "currentJobTitles"
+    ]:
+        print(
+            f"  - {title}"
+        )
+
+    print(
+        "Apify input:"
+    )
+
+    print(run_input)
+
+    return run_apify_actor(
+        actor_id,
+        run_input,
+    )
+
+
+def _first_string(
+    raw: dict[str, Any],
+    fields: list[str],
+) -> str:
+    for field in fields:
+        value = raw.get(field)
+
+        if isinstance(value, str):
+            value = value.strip()
+
+            if value:
+                return value
+
+    return ""
+
+
+def extract_email(
+    raw: dict[str, Any],
+) -> str:
+    return _first_string(
+        raw,
+        [
+            "email",
+            "emailAddress",
+            "contactEmail",
+            "professionalEmail",
+            "workEmail",
+            "personalEmail",
+        ],
+    ).lower()
+
+
+def extract_name(
+    raw: dict[str, Any],
+) -> str:
+    name = _first_string(
+        raw,
+        [
+            "fullName",
+            "full_name",
+            "name",
+        ],
+    )
+
+    if name:
+        return name
+
+    first = _first_string(
+        raw,
+        [
+            "firstName",
+            "first_name",
+        ],
+    )
+
+    last = _first_string(
+        raw,
+        [
+            "lastName",
+            "last_name",
+        ],
+    )
+
+    return f"{first} {last}".strip()
+
+
+def extract_title(
+    raw: dict[str, Any],
+) -> str:
+    return _first_string(
+        raw,
+        [
+            "headline",
+            "jobTitle",
+            "title",
+            "position",
+        ],
+    )
+
+
+def extract_company(
+    raw: dict[str, Any],
+) -> str:
+    return _first_string(
+        raw,
+        [
+            "companyName",
+            "currentCompany",
+            "company",
+        ],
+    )
+
+
+def extract_location(
+    raw: dict[str, Any],
+) -> str:
+    value = raw.get("location")
+
+    if isinstance(value, str):
+        return value.strip()
+
+    if isinstance(value, dict):
+        city = str(
+            value.get("city", "")
+        ).strip()
+
+        country = str(
+            value.get("country", "")
+        ).strip()
+
+        return ", ".join(
+            part
+            for part in [
+                city,
+                country,
+            ]
+            if part
+        )
+
+    return _first_string(
+        raw,
+        [
+            "locationName",
+            "city",
+        ],
+    )
+
+
+def extract_linkedin_url(
+    raw: dict[str, Any],
+) -> str:
+    value = _first_string(
+        raw,
+        [
+            "linkedinUrl",
+            "linkedin_url",
+            "profileUrl",
+            "url",
+        ],
+    )
+
+    if "linkedin.com" in value:
+        return value
+
+    return ""
+
+
+def normalize_recruiter(
+    raw: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "name": extract_name(raw),
+        "email": extract_email(raw),
+        "title": extract_title(raw),
+        "company": extract_company(raw),
+        "location": extract_location(raw),
+        "linkedin_url": extract_linkedin_url(raw),
+        "about": _first_string(
+            raw,
+            [
+                "about",
+                "summary",
+            ],
+        ),
+        "source": "apify",
+        "raw": raw,
+    }
+
+
+def deduplicate_recruiters(
+    recruiters: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    seen = set()
+    result = []
+
+    for recruiter in recruiters:
+        email = recruiter.get(
+            "email",
+            "",
+        ).lower()
+
+        linkedin = recruiter.get(
+            "linkedin_url",
+            "",
+        ).lower()
+
+        name = recruiter.get(
+            "name",
+            "",
+        ).lower()
+
+        company = recruiter.get(
+            "company",
+            "",
+        ).lower()
+
+        key = (
+            email
+            or linkedin
+            or f"{name}|{company}"
+        )
+
+        if not key or key in seen:
+            continue
+
+        seen.add(key)
+        result.append(recruiter)
+
+    return result
 from datetime import datetime, timezone
 from typing import Any
 
