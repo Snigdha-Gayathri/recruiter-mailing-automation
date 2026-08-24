@@ -11,11 +11,9 @@ permissions:
 
 jobs:
   recruiter-hunter:
-
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -29,52 +27,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ------------------------------------------------------------
-      # ZERO-COST TESTS
-      #
-      # This test suite does NOT call Apify.
-      # It does NOT send email.
-      #
-      # If this fails, the real automation is NOT executed.
-      # ------------------------------------------------------------
-
       - name: Run zero-cost matching tests
         run: |
           python tests/test_matching.py
 
-      # ------------------------------------------------------------
-      # REAL AUTOMATION
-      #
-      # Only reached when all local tests pass.
-      # ------------------------------------------------------------
-
-      - name: Run recruiter hunter
-        env:
-          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
-          MAX_EMAILS_PER_RUN: "5"
-          STATE_PATH: data/state.json
+      - name: Confirm zero-cost test completion
         run: |
-          python src/main.py
-
-      # ------------------------------------------------------------
-      # Persist state
-      # ------------------------------------------------------------
-
-      - name: Commit updated state
-        if: always()
-        run: |
-          if [ -f data/state.json ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-            git add data/state.json
-
-            if git diff --cached --quiet; then
-              echo "No state changes to commit."
-            else
-              git commit -m "chore: update recruiter outreach state"
-              git push
-            fi
-          else
-            echo "No state file found."
-          fi
+          echo "=============================================="
+          echo "ZERO-COST TEST RUN COMPLETE"
+          echo "=============================================="
+          echo "Apify calls: 0"
+          echo "Emails sent: 0"
+          echo "Real recruiter discovery: DISABLED"
+          echo "=============================================="
