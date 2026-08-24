@@ -1,1 +1,13 @@
-
+{
+  "version": 1,
+  "created_at": null,
+  "updated_at": null,
+  "contacts": {},
+  "outreach": [],
+  "statistics": {
+    "discovered": 0,
+    "qualified": 0,
+    "emails_sent": 0,
+    "emails_failed": 0
+  }
+}
