@@ -1,1 +1,1 @@
-
+"""Persistent recruiter outreach state."""
