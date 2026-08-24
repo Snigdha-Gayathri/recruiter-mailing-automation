@@ -7,9 +7,13 @@ from typing import Any
 import requests
 
 
-APIFY_API_BASE = "https://api.apify.com/v2"
+APIFY_API_BASE = (
+    "https://api.apify.com/v2"
+)
 
-DEFAULT_JOB_ACTOR = "bebity~linkedin-jobs-scraper"
+DEFAULT_JOB_ACTOR = (
+    "bebity~linkedin-jobs-scraper"
+)
 
 JOB_SEARCH_QUERY = (
     "AI Engineer OR "
@@ -31,8 +35,13 @@ TARGET_LOCATIONS = [
 ]
 
 
-def normalize(value: Any) -> str:
-    text = str(value or "").lower()
+def normalize(
+    value: Any,
+) -> str:
+
+    text = str(
+        value or ""
+    ).lower()
 
     text = re.sub(
         r"[^a-z0-9+#./& -]",
@@ -50,12 +59,14 @@ def normalize(value: Any) -> str:
 
 
 def get_apify_token() -> str:
+
     token = os.getenv(
         "APIFY_API_TOKEN",
         "",
     ).strip()
 
     if not token:
+
         raise RuntimeError(
             "APIFY_API_TOKEN is not configured."
         )
@@ -64,31 +75,11 @@ def get_apify_token() -> str:
 
 
 def get_actor_id() -> str:
-    actor_id = os.getenv(
+
+    return os.getenv(
         "APIFY_JOB_ACTOR",
         DEFAULT_JOB_ACTOR,
-    ).strip()
-
-    if not actor_id:
-        raise RuntimeError(
-            "APIFY_JOB_ACTOR is not configured."
-        )
-
-    return actor_id
-
-
-def build_actor_url(
-    actor_id: str,
-) -> str:
-    encoded_actor_id = actor_id.replace(
-        "/",
-        "~",
-    )
-
-    return (
-        f"{APIFY_API_BASE}/acts/"
-        f"{encoded_actor_id}/runs"
-    )
+    ).strip() or DEFAULT_JOB_ACTOR
 
 
 def extract_string(
@@ -103,9 +94,13 @@ def extract_string(
         )
 
         if (
-            isinstance(value, str)
+            isinstance(
+                value,
+                str,
+            )
             and value.strip()
         ):
+
             return value.strip()
 
     return ""
@@ -232,11 +227,21 @@ def normalize_job(
 ) -> dict[str, Any]:
 
     return {
-        "title": extract_title(record),
-        "company": extract_company(record),
-        "location": extract_location(record),
-        "description": extract_description(record),
-        "url": extract_url(record),
+        "title": extract_title(
+            record
+        ),
+        "company": extract_company(
+            record
+        ),
+        "location": extract_location(
+            record
+        ),
+        "description": extract_description(
+            record
+        ),
+        "url": extract_url(
+            record
+        ),
         "raw": record,
     }
 
@@ -291,23 +296,18 @@ def location_matches(
     location: str,
 ) -> bool:
 
-    normalized_location = normalize(
+    value = normalize(
         location
     )
 
-    if not normalized_location:
+    if not value:
         return False
 
-    for target in TARGET_LOCATIONS:
-
-        normalized_target = normalize(
-            target
-        )
-
-        if normalized_target in normalized_location:
-            return True
-
-    return False
+    return any(
+        normalize(target)
+        in value
+        for target in TARGET_LOCATIONS
+    )
 
 
 def relevant_job(
@@ -334,6 +334,13 @@ def deduplicate_jobs(
 
     for job in jobs:
 
+        url = normalize(
+            job.get(
+                "url",
+                "",
+            )
+        )
+
         title = normalize(
             job.get(
                 "title",
@@ -355,13 +362,6 @@ def deduplicate_jobs(
             )
         )
 
-        url = normalize(
-            job.get(
-                "url",
-                "",
-            )
-        )
-
         key = (
             url
             or f"{title}|{company}|{location}"
@@ -373,8 +373,13 @@ def deduplicate_jobs(
         if key in seen:
             continue
 
-        seen.add(key)
-        result.append(job)
+        seen.add(
+            key
+        )
+
+        result.append(
+            job
+        )
 
     return result
 
@@ -382,21 +387,40 @@ def deduplicate_jobs(
 def search_jobs() -> list[dict[str, Any]]:
 
     token = get_apify_token()
+
     actor_id = get_actor_id()
 
-    actor_url = build_actor_url(
-        actor_id
+    encoded_actor_id = (
+        actor_id.replace(
+            "/",
+            "~",
+        )
+    )
+
+    url = (
+        f"{APIFY_API_BASE}/acts/"
+        f"{encoded_actor_id}/runs"
+    )
+
+    max_items = int(
+        os.getenv(
+            "JOB_MAX_ITEMS",
+            "100",
+        )
+    )
+
+    max_items = max(
+        1,
+        min(
+            max_items,
+            100,
+        ),
     )
 
     actor_input = {
         "searchQuery": JOB_SEARCH_QUERY,
         "locations": TARGET_LOCATIONS,
-        "maxItems": int(
-            os.getenv(
-                "JOB_MAX_ITEMS",
-                "100",
-            )
-        ),
+        "maxItems": max_items,
         "startPage": 1,
         "takePages": 1,
     }
@@ -410,10 +434,12 @@ def search_jobs() -> list[dict[str, Any]]:
         "Apify job input:"
     )
 
-    print(actor_input)
+    print(
+        actor_input
+    )
 
     response = requests.post(
-        actor_url,
+        url,
         params={
             "token": token,
             "waitForFinish": 120,
@@ -450,11 +476,6 @@ def search_jobs() -> list[dict[str, Any]]:
             "no dataset ID."
         )
 
-    print(
-        f"Apify job dataset: "
-        f"{dataset_id}"
-    )
-
     dataset_url = (
         f"{APIFY_API_BASE}/datasets/"
         f"{dataset_id}/items"
@@ -486,6 +507,7 @@ def search_jobs() -> list[dict[str, Any]]:
         records,
         list,
     ):
+
         return []
 
     print(
@@ -508,7 +530,9 @@ def search_jobs() -> list[dict[str, Any]]:
         )
 
         if relevant_job(job):
-            jobs.append(job)
+            jobs.append(
+                job
+            )
 
     jobs = deduplicate_jobs(
         jobs
@@ -520,94 +544,3 @@ def search_jobs() -> list[dict[str, Any]]:
     )
 
     return jobs
-
-
-def company_key(
-    company: str,
-) -> str:
-
-    value = normalize(
-        company
-    )
-
-    value = re.sub(
-        r"\b(pvt|private|ltd|limited|inc|llc|corp|corporation)\b",
-        "",
-        value,
-    )
-
-    value = re.sub(
-        r"\s+",
-        " ",
-        value,
-    )
-
-    return value.strip()
-
-
-def companies_match(
-    recruiter_company: str,
-    job_company: str,
-) -> bool:
-
-    recruiter_key = company_key(
-        recruiter_company
-    )
-
-    job_key = company_key(
-        job_company
-    )
-
-    if not recruiter_key or not job_key:
-        return False
-
-    if recruiter_key == job_key:
-        return True
-
-    if (
-        recruiter_key in job_key
-        or job_key in recruiter_key
-    ):
-        return True
-
-    recruiter_words = set(
-        recruiter_key.split()
-    )
-
-    job_words = set(
-        job_key.split()
-    )
-
-    if not recruiter_words or not job_words:
-        return False
-
-    overlap = (
-        recruiter_words
-        & job_words
-    )
-
-    return len(overlap) >= 2
-
-
-def jobs_for_company(
-    jobs: list[dict[str, Any]],
-    company: str,
-) -> list[dict[str, Any]]:
-
-    if not company:
-        return []
-
-    matches = []
-
-    for job in jobs:
-
-        if companies_match(
-            company,
-            job.get(
-                "company",
-                "",
-            ),
-        ):
-            matches.append(job)
-
-    return matches
