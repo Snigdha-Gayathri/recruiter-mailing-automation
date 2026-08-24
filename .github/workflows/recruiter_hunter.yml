@@ -2,15 +2,6 @@ name: AI Recruiter Hunter
 
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: "Choose what this run should do"
-        required: true
-        default: "recruiter"
-        type: choice
-        options:
-          - recruiter
-          - refresh_jobs
 
   schedule:
     - cron: "0 * * * *"
@@ -36,95 +27,50 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run zero-cost matching tests
+      - name: Verify production files
         run: |
-          python tests/test_matching.py
+          test -f src/main.py
+          test -f src/discovery/recruiters.py
+          test -f src/discovery/jobs.py
+          test -f src/matching/scorer.py
+          test -f src/outreach/gmail.py
+          test -f src/outreach/personalization.py
+          test -f src/outreach/templates.py
+          test -f src/storage/database.py
+          test -f config/profile.json
+          test -f assets/Snigdha-Gayathri-Resume.pdf
+
+          python -m py_compile \
+            src/main.py \
+            src/discovery/recruiters.py \
+            src/discovery/jobs.py \
+            src/discovery/enrichment.py \
+            src/matching/scorer.py \
+            src/outreach/gmail.py \
+            src/outreach/personalization.py \
+            src/outreach/templates.py \
+            src/storage/database.py
 
       - name: Run recruiter hunter
-        if: github.event_name == 'schedule' || inputs.mode == 'recruiter'
         env:
           APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
           APIFY_RECRUITER_ACTOR: "harvestapi/linkedin-profile-search"
+
           MAX_APIFY_CALLS_PER_RUN: "1"
           MAX_EMAILS_PER_RUN: "5"
+
           STATE_PATH: "data/state.json"
+
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: "llama-3.3-70b-versatile"
+
         run: |
           python src/main.py
-
-      - name: Run job cache refresh
-        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'refresh_jobs'
-        env:
-          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
-          APIFY_JOB_ACTOR: "bebity/linkedin-jobs-scraper"
-          MAX_APIFY_CALLS_PER_RUN: "1"
-          STATE_PATH: "data/state.json"
-        run: |
-          python -c "
-          from pathlib import Path
-          import os
-          import sys
-
-          sys.path.insert(0, 'src')
-
-          from discovery.jobs import search_jobs
-          from storage.database import load_state, get_cached_jobs, set_job_cache
-
-          state = load_state()
-
-          print('JOB CACHE REFRESH')
-          print('Apify limit this run: 1')
-
-          jobs = search_jobs(max_results=100)
-
-          existing = get_cached_jobs(state)
-
-          combined = existing + jobs
-
-          deduped = {}
-
-          for job in combined:
-              url = str(job.get('url', '')).strip()
-
-              key = (
-                  url
-                  or '|'.join(
-                      [
-                          str(job.get('title', '')).lower(),
-                          str(job.get('companyName', job.get('company', ''))).lower(),
-                          str(job.get('location', '')).lower(),
-                      ]
-                  )
-              )
-
-              if key:
-                  deduped[key] = job
-
-          set_job_cache(
-              state,
-              list(deduped.values())
-          )
-
-          state.setdefault(
-              'statistics',
-              {}
-          )
-
-          state['statistics']['jobs_cached'] = len(
-              deduped
-          )
-
-          state['statistics']['apify_calls'] = (
-              state['statistics'].get('apify_calls', 0)
-              + 1
-          )
-
-          from storage.database import save_state
-
-          save_state(state)
-
-          print(f'New jobs: {len(jobs)}')
-          print(f'Total cached jobs: {len(deduped)}')
-          "
 
       - name: Commit updated state
         if: always()
@@ -133,12 +79,14 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-            git add data/state.json data/recruiter_search_state.json 2>/dev/null || true
+            git add \
+              data/state.json \
+              data/recruiter_search_state.json
 
             if git diff --cached --quiet; then
               echo "No state changes to commit."
             else
-              git commit -m "chore: update recruiter hunter state"
+              git commit -m "chore: update recruiter outreach state"
               git push
             fi
           else
