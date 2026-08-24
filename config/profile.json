@@ -373,11 +373,10 @@
   },
 
   "matching": {
-    "minimum_score": 70,
-    "minimum_role_match": 1,
-    "minimum_skill_match": 2,
-    "require_location_match": true,
-    "require_hiring_signal": true,
-    "prefer_current_opening": true
-  }
+  "minimum_score": 55,
+  "minimum_recruiter_signal": 1,
+  "require_location_match": true,
+  "require_email": true,
+  "prefer_current_opening": true
+}
 }
