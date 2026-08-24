@@ -4,7 +4,146 @@ on:
   schedule:
     - cron: "0 * * * *"
 
+  workflow_dispatchname: AI Recruiter Hunter
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+    - cron: "30 */6 * * *"
+
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: recruiter-hunter
+  cancel-in-progress: false
+
+jobs:
+
+  recruiter-hunter:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 * * * *'
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 15
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run recruiter hunter
+        env:
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+
+          APIFY_RECRUITER_ACTOR: harvestapi~linkedin-profile-search
+          APIFY_JOB_ACTOR: bebity~linkedin-jobs-scraper
+
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
+
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_MODEL: llama-3.3-70b-versatile
+
+          MAX_EMAILS_PER_RUN: "5"
+
+          MAX_APIFY_CALLS_PER_RUN: "1"
+
+          RECRUITER_MAX_ITEMS: "25"
+
+          JOB_CACHE_TTL_HOURS: "6"
+
+          RUN_MODE: recruiter
+
+          STATE_PATH: data/state.json
+
+        run: |
+          python src/main.py
+
+      - name: Persist state
+        if: always()
+        run: |
+          if [ -f data/state.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git add data/state.json
+
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: update recruiter hunter state"
+              git push
+            fi
+          fi
+
+
+  job-cache-refresh:
+    if: github.event_name == 'schedule' && github.event.schedule == '30 */6 * * *'
+
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 15
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Refresh job cache
+        env:
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+
+          APIFY_RECRUITER_ACTOR: harvestapi~linkedin-profile-search
+          APIFY_JOB_ACTOR: bebity~linkedin-jobs-scraper
+
+          MAX_APIFY_CALLS_PER_RUN: "1"
+
+          JOB_MAX_ITEMS: "100"
+
+          RUN_MODE: jobs
+
+          STATE_PATH: data/state.json
+
+        run: |
+          python src/main.py
+
+      - name: Persist state
+        if: always()
+        run: |
+          if [ -f data/state.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git add data/state.json
+
+            if ! git diff --cached --quiet; then
+              git commit -m "chore: refresh AI job cache"
+              git push
+            fi
+          fi:
 
 permissions:
   contents: write
