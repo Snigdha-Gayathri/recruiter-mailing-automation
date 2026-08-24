@@ -31,12 +31,35 @@ jobs:
         run: |
           python tests/test_matching.py
 
-      - name: Confirm zero-cost test completion
+      - name: Run recruiter hunter
+        env:
+          APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
+          APIFY_RECRUITER_ACTOR: "harvestapi/linkedin-profile-search"
+          APIFY_JOB_ACTOR: "bebity/linkedin-jobs-scraper"
+          MAX_EMAILS_PER_RUN: "5"
+          MAX_APIFY_CALLS_PER_RUN: "1"
+          STATE_PATH: "data/state.json"
+          JOB_CACHE_PATH: "data/job_cache.json"
+          JOB_CACHE_TTL_SECONDS: "21600"
+          RECRUITER_MAX_RESULTS: "25"
         run: |
-          echo "=============================================="
-          echo "ZERO-COST TEST RUN COMPLETE"
-          echo "=============================================="
-          echo "Apify calls: 0"
-          echo "Emails sent: 0"
-          echo "Real recruiter discovery: DISABLED"
-          echo "=============================================="
+          python src/main.py
+
+      - name: Persist automation state
+        if: always()
+        run: |
+          if [ -f data/state.json ] || [ -f data/job_cache.json ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git add data/state.json data/job_cache.json 2>/dev/null || true
+
+            if git diff --cached --quiet; then
+              echo "No state changes to commit."
+            else
+              git commit -m "chore: update recruiter hunter state"
+              git push
+            fi
+          else
+            echo "No state files found."
+          fi
