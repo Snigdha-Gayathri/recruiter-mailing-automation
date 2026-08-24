@@ -22,13 +22,6 @@ class MatchResult:
         default_factory=list
     )
 
-    evidence: list[str] = field(
-        default_factory=list
-    )
-
-    location_match: bool = False
-    hiring_signal: bool = False
-
     recruiter_signal_matches: list[str] = field(
         default_factory=list
     )
@@ -37,65 +30,46 @@ class MatchResult:
         default_factory=list
     )
 
+    matching_jobs: list[dict[str, Any]] = field(
+        default_factory=list
+    )
 
-def normalize(text: str) -> str:
-    text = str(text or "").lower()
+    evidence: list[str] = field(
+        default_factory=list
+    )
 
-    text = re.sub(
+    location_match: bool = False
+    hiring_signal: bool = False
+
+
+def normalize(
+    text: Any
+) -> str:
+    value = str(text or "").lower()
+
+    value = re.sub(
         r"[^a-z0-9+#./& -]",
         " ",
-        text
+        value
     )
 
-    text = re.sub(
+    value = re.sub(
         r"\s+",
         " ",
-        text
+        value
     )
 
-    return text.strip()
+    return value.strip()
 
 
-def contains_term(
+def contains(
     text: str,
     term: str
 ) -> bool:
-    normalized_text = normalize(text)
-    normalized_term = normalize(term)
-
-    if not normalized_term:
-        return False
-
-    return normalized_term in normalized_text
+    return normalize(term) in normalize(text)
 
 
-def flatten_skills(
-    profile: dict[str, Any]
-) -> list[str]:
-    skills = profile.get(
-        "skills",
-        {}
-    )
-
-    flattened = []
-
-    for category_values in skills.values():
-
-        if not isinstance(
-            category_values,
-            list
-        ):
-            continue
-
-        flattened.extend(
-            str(value)
-            for value in category_values
-        )
-
-    return flattened
-
-
-def build_recruiter_text(
+def recruiter_text(
     recruiter: dict[str, Any]
 ) -> str:
     raw = recruiter.get(
@@ -110,75 +84,16 @@ def build_recruiter_text(
         raw = {}
 
     fields = [
-        recruiter.get(
-            "name",
-            ""
-        ),
-
-        recruiter.get(
-            "title",
-            ""
-        ),
-
-        recruiter.get(
-            "company",
-            ""
-        ),
-
-        recruiter.get(
-            "location",
-            ""
-        ),
-
-        recruiter.get(
-            "about",
-            ""
-        ),
-
-        recruiter.get(
-            "job_title",
-            ""
-        ),
-
-        recruiter.get(
-            "job_description",
-            ""
-        ),
-
-        raw.get(
-            "headline",
-            ""
-        ),
-
-        raw.get(
-            "summary",
-            ""
-        ),
-
-        raw.get(
-            "about",
-            ""
-        ),
-
-        raw.get(
-            "occupation",
-            ""
-        ),
-
-        raw.get(
-            "currentJob",
-            ""
-        ),
-
-        raw.get(
-            "currentPosition",
-            ""
-        ),
-
-        raw.get(
-            "industry",
-            ""
-        )
+        recruiter.get("name"),
+        recruiter.get("title"),
+        recruiter.get("company"),
+        recruiter.get("location"),
+        recruiter.get("about"),
+        raw.get("headline"),
+        raw.get("summary"),
+        raw.get("about"),
+        raw.get("occupation"),
+        raw.get("industry")
     ]
 
     experiences = raw.get(
@@ -191,7 +106,6 @@ def build_recruiter_text(
         list
     ):
         for experience in experiences:
-
             if not isinstance(
                 experience,
                 dict
@@ -201,49 +115,47 @@ def build_recruiter_text(
             fields.extend(
                 [
                     experience.get(
-                        "title",
-                        ""
+                        "title"
                     ),
-
                     experience.get(
-                        "companyName",
-                        ""
+                        "companyName"
                     ),
-
                     experience.get(
-                        "description",
-                        ""
+                        "description"
                     )
                 ]
             )
 
     return " ".join(
-        str(field)
-        for field in fields
-        if field
+        str(value)
+        for value in fields
+        if value
     )
 
 
-def get_recruiter_role_signals(
-    recruiter_text: str,
+def recruiter_signals(
+    recruiter: dict[str, Any],
     profile: dict[str, Any]
 ) -> list[str]:
-    recruiter_targets = profile.get(
+    text = recruiter_text(
+        recruiter
+    )
+
+    targets = profile.get(
         "recruiter_targets",
         {}
     )
 
-    preferred_titles = recruiter_targets.get(
+    titles = targets.get(
         "preferred_titles",
         []
     )
 
     matches = []
 
-    for title in preferred_titles:
-
-        if contains_term(
-            recruiter_text,
+    for title in titles:
+        if contains(
+            text,
             title
         ):
             matches.append(
@@ -253,166 +165,16 @@ def get_recruiter_role_signals(
     return matches
 
 
-def get_target_role_signals(
-    recruiter_text: str,
-    profile: dict[str, Any]
-) -> list[str]:
-    targeting = profile.get(
-        "targeting",
-        {}
-    )
-
-    target_roles = targeting.get(
-        "roles",
-        []
-    )
-
-    matches = []
-
-    for role in target_roles:
-
-        if contains_term(
-            recruiter_text,
-            role
-        ):
-            matches.append(
-                role
-            )
-
-    return matches
-
-
-def get_skill_matches(
-    recruiter_text: str,
-    profile: dict[str, Any]
-) -> list[str]:
-    skills = flatten_skills(
-        profile
-    )
-
-    matches = []
-
-    for skill in skills:
-
-        if contains_term(
-            recruiter_text,
-            skill
-        ):
-            matches.append(
-                skill
-            )
-
-    return matches
-
-
-def get_project_matches(
-    recruiter_text: str,
-    profile: dict[str, Any]
-) -> tuple[
-    list[str],
-    list[str]
-]:
-    projects = profile.get(
-        "projects",
-        []
-    )
-
-    matched_projects = []
-    evidence = []
-
-    for project in projects:
-
-        keywords = project.get(
-            "keywords",
-            []
-        )
-
-        matched_keywords = []
-
-        for keyword in keywords:
-
-            if contains_term(
-                recruiter_text,
-                keyword
-            ):
-                matched_keywords.append(
-                    keyword
-                )
-
-        if not matched_keywords:
-            continue
-
-        project_name = project.get(
-            "name",
-            "Unknown Project"
-        )
-
-        matched_projects.append(
-            project_name
-        )
-
-        for item in project.get(
-            "evidence",
-            []
-        ):
-            evidence.append(
-                f"{project_name}: {item}"
-            )
-
-    return (
-        matched_projects,
-        evidence
-    )
-
-
-def location_matches(
-    recruiter_location: str,
-    recruiter_text: str,
-    profile: dict[str, Any]
-) -> bool:
-    targeting = profile.get(
-        "targeting",
-        {}
-    )
-
-    target_locations = targeting.get(
-        "locations",
-        []
-    )
-
-    combined_location = " ".join(
-        [
-            recruiter_location,
-            recruiter_text
-        ]
-    )
-
-    normalized_location = normalize(
-        combined_location
-    )
-
-    for location in target_locations:
-
-        if contains_term(
-            normalized_location,
-            location
-        ):
-            return True
-
-    return False
-
-
-def get_company_signals(
+def company_signals(
     recruiter: dict[str, Any],
-    recruiter_text: str,
     profile: dict[str, Any]
 ) -> list[str]:
-    recruiter_targets = profile.get(
+    targets = profile.get(
         "recruiter_targets",
         {}
     )
 
-    company_signals = recruiter_targets.get(
+    signals = targets.get(
         "preferred_company_signals",
         []
     )
@@ -424,19 +186,9 @@ def get_company_signals(
 
     matches = []
 
-    for signal in company_signals:
-
-        if contains_term(
+    for signal in signals:
+        if contains(
             company,
-            signal
-        ):
-            matches.append(
-                signal
-            )
-            continue
-
-        if contains_term(
-            recruiter_text,
             signal
         ):
             matches.append(
@@ -446,229 +198,296 @@ def get_company_signals(
     return matches
 
 
-def detect_hiring_signal(
-    recruiter: dict[str, Any],
-    recruiter_text: str
-) -> bool:
-    explicit_fields = [
-        recruiter.get(
-            "job_title",
-            ""
-        ),
-
-        recruiter.get(
-            "job_description",
-            ""
-        ),
-
-        recruiter.get(
-            "job_url",
-            ""
-        )
-    ]
-
-    explicit_text = " ".join(
-        str(value)
-        for value in explicit_fields
-        if value
-    )
-
-    if explicit_text.strip():
-        return True
-
-    hiring_phrases = [
-        "hiring",
-        "we are hiring",
-        "currently hiring",
-        "looking for",
-        "open roles",
-        "open positions",
-        "vacancies",
-        "talent acquisition",
-        "recruiting",
-        "recruitment",
-        "hiring for",
-        "building the team",
-        "join our team",
-        "careers"
-    ]
-
-    for phrase in hiring_phrases:
-
-        if contains_term(
-            recruiter_text,
-            phrase
-        ):
-            return True
-
-    return False
-
-
-def calculate_recruiter_match(
-    recruiter: dict[str, Any],
+def skill_list(
     profile: dict[str, Any]
-) -> MatchResult:
-    recruiter_text = build_recruiter_text(
-        recruiter
+) -> list[str]:
+    skills = profile.get(
+        "skills",
+        {}
     )
 
-    recruiter_role_matches = (
-        get_recruiter_role_signals(
-            recruiter_text,
-            profile
+    result = []
+
+    for values in skills.values():
+
+        if not isinstance(
+            values,
+            list
+        ):
+            continue
+
+        result.extend(
+            str(value)
+            for value in values
         )
+
+    return list(
+        dict.fromkeys(result)
     )
 
-    target_role_matches = (
-        get_target_role_signals(
-            recruiter_text,
-            profile
-        )
-    )
 
-    skill_matches = get_skill_matches(
-        recruiter_text,
-        profile
-    )
-
-    project_matches, evidence = (
-        get_project_matches(
-            recruiter_text,
-            profile
-        )
-    )
-
-    location_match = location_matches(
-        recruiter.get(
-            "location",
-            ""
-        ),
-        recruiter_text,
-        profile
-    )
-
-    company_signal_matches = (
-        get_company_signals(
-            recruiter,
-            recruiter_text,
-            profile
-        )
-    )
-
-    hiring_signal = detect_hiring_signal(
-        recruiter,
-        recruiter_text
-    )
-
-    score = 0.0
-
-    # --------------------------------------------------------
-    # Recruiter identity
-    # --------------------------------------------------------
-
-    if recruiter_role_matches:
-
-        score += min(
-            25.0,
-            15.0
-            + (
-                len(
-                    recruiter_role_matches
-                )
-                - 1
+def match_job_to_profile(
+    job: dict[str, Any],
+    profile: dict[str, Any]
+) -> tuple[
+    list[str],
+    list[str],
+    list[str]
+]:
+    job_text = " ".join(
+        [
+            job.get(
+                "title",
+                ""
+            ),
+            job.get(
+                "description",
+                ""
             )
-            * 5.0
-        )
-
-    # --------------------------------------------------------
-    # Evidence that they recruit for Snigdha's target roles
-    # --------------------------------------------------------
-
-    if target_role_matches:
-
-        score += min(
-            25.0,
-            12.0
-            + (
-                len(
-                    target_role_matches
-                )
-                * 4.0
-            )
-        )
-
-    # --------------------------------------------------------
-    # Technical overlap
-    # --------------------------------------------------------
-
-    score += min(
-        20.0,
-        len(skill_matches)
-        * 1.5
+        ]
     )
 
-    # --------------------------------------------------------
-    # Project/domain overlap
-    # --------------------------------------------------------
+    role_matches = []
 
-    project_score = 0.0
+    for role in profile.get(
+        "targeting",
+        {}
+    ).get(
+        "roles",
+        []
+    ):
+        if contains(
+            job_text,
+            role
+        ):
+            role_matches.append(
+                role
+            )
+
+    skill_matches = []
+
+    for skill in skill_list(
+        profile
+    ):
+        if contains(
+            job_text,
+            skill
+        ):
+            skill_matches.append(
+                skill
+            )
+
+    project_matches = []
 
     for project in profile.get(
         "projects",
         []
     ):
-
         project_name = project.get(
-            "name"
+            "name",
+            ""
         )
 
-        if project_name in project_matches:
+        keywords = project.get(
+            "keywords",
+            []
+        )
 
-            priority = float(
-                project.get(
-                    "priority",
-                    5
-                )
+        if any(
+            contains(
+                job_text,
+                keyword
+            )
+            for keyword in keywords
+        ):
+            project_matches.append(
+                project_name
             )
 
-            project_score += (
-                priority * 0.75
+    return (
+        role_matches,
+        skill_matches,
+        project_matches
+    )
+
+
+def score_job(
+    job: dict[str, Any],
+    profile: dict[str, Any]
+) -> tuple[
+    float,
+    list[str],
+    list[str],
+    list[str]
+]:
+    (
+        role_matches,
+        skill_matches,
+        project_matches
+    ) = match_job_to_profile(
+        job,
+        profile
+    )
+
+    score = 0.0
+
+    score += min(
+        40.0,
+        len(role_matches) * 10.0
+    )
+
+    score += min(
+        25.0,
+        len(skill_matches) * 2.5
+    )
+
+    score += min(
+        20.0,
+        len(project_matches) * 5.0
+    )
+
+    if job.get(
+        "location_match",
+        False
+    ):
+        score += 15.0
+
+    return (
+        min(
+            100.0,
+            score
+        ),
+        role_matches,
+        skill_matches,
+        project_matches
+    )
+
+
+def calculate_recruiter_match(
+    recruiter: dict[str, Any],
+    jobs: list[dict[str, Any]],
+    profile: dict[str, Any]
+) -> MatchResult:
+
+    recruiter_matches = recruiter_signals(
+        recruiter,
+        profile
+    )
+
+    company_matches = company_signals(
+        recruiter,
+        profile
+    )
+
+    best_jobs = []
+
+    all_roles = []
+    all_skills = []
+    all_projects = []
+    evidence = []
+
+    for job in jobs:
+
+        (
+            job_score,
+            role_matches,
+            skill_matches,
+            project_matches
+        ) = score_job(
+            job,
+            profile
+        )
+
+        enriched_job = dict(
+            job
+        )
+
+        enriched_job[
+            "fit_score"
+        ] = round(
+            job_score,
+            2
+        )
+
+        enriched_job[
+            "role_matches"
+        ] = role_matches
+
+        enriched_job[
+            "skill_matches"
+        ] = skill_matches
+
+        enriched_job[
+            "project_matches"
+        ] = project_matches
+
+        best_jobs.append(
+            enriched_job
+        )
+
+        all_roles.extend(
+            role_matches
+        )
+
+        all_skills.extend(
+            skill_matches
+        )
+
+        all_projects.extend(
+            project_matches
+        )
+
+        if role_matches:
+            evidence.append(
+                f"{job.get('title', '')} "
+                f"in {job.get('location', '')}"
             )
 
+    best_jobs.sort(
+        key=lambda job: job.get(
+            "fit_score",
+            0
+        ),
+        reverse=True
+    )
+
+    best_jobs = best_jobs[:5]
+
+    if not best_jobs:
+        return MatchResult(
+            score=0,
+            recommendation="REJECT"
+        )
+
+    best_job_score = best_jobs[0][
+        "fit_score"
+    ]
+
+    score = 0.0
+
+    # Recruiter quality
     score += min(
         15.0,
-        project_score
+        len(recruiter_matches) * 5.0
     )
 
-    # --------------------------------------------------------
-    # Location
-    # --------------------------------------------------------
-
-    if location_match:
-        score += 10.0
-
-    # --------------------------------------------------------
-    # Hiring language
-    # --------------------------------------------------------
-
-    if hiring_signal:
-        score += 5.0
-
-    # --------------------------------------------------------
-    # Company relevance
-    # --------------------------------------------------------
-
+    # Company quality
     score += min(
         10.0,
-        len(
-            company_signal_matches
-        )
-        * 3.0
+        len(company_matches) * 5.0
     )
 
-    # --------------------------------------------------------
-    # Corporate email bonus
-    # --------------------------------------------------------
+    # Actual job fit
+    score += (
+        best_job_score * 0.65
+    )
+
+    # Email quality
+    if recruiter.get(
+        "email_valid",
+        False
+    ):
+        score += 5.0
 
     if recruiter.get(
         "corporate_email",
@@ -676,14 +495,13 @@ def calculate_recruiter_match(
     ):
         score += 5.0
 
+    # Current hiring activity
+    score += 10.0
+
     score = min(
         100.0,
         score
     )
-
-    # --------------------------------------------------------
-    # Qualification policy
-    # --------------------------------------------------------
 
     matching_config = profile.get(
         "matching",
@@ -697,57 +515,15 @@ def calculate_recruiter_match(
         )
     )
 
-    minimum_recruiter_signal = int(
-        matching_config.get(
-            "minimum_recruiter_signal",
-            1
+    qualifies = (
+        score >= minimum_score
+        and bool(
+            best_jobs
         )
-    )
-
-    require_location = bool(
-        matching_config.get(
-            "require_location_match",
-            True
-        )
-    )
-
-    require_email = bool(
-        matching_config.get(
-            "require_email",
-            True
-        )
-    )
-
-    recruiter_has_email = bool(
-        recruiter.get(
+        and recruiter.get(
             "email_valid",
             False
         )
-    )
-
-    recruiter_signal_count = (
-        len(recruiter_role_matches)
-        + len(target_role_matches)
-    )
-
-    qualifies = (
-        score >= minimum_score
-        and recruiter_signal_count
-        >= minimum_recruiter_signal
-        and (
-            location_match
-            or not require_location
-        )
-        and (
-            recruiter_has_email
-            or not require_email
-        )
-    )
-
-    recommendation = (
-        "OUTREACH"
-        if qualifies
-        else "REJECT"
     )
 
     return MatchResult(
@@ -756,97 +532,49 @@ def calculate_recruiter_match(
             2
         ),
 
-        recommendation=recommendation,
-
-        role_matches=(
-            recruiter_role_matches
-            + target_role_matches
+        recommendation=(
+            "OUTREACH"
+            if qualifies
+            else "REJECT"
         ),
 
-        skill_matches=skill_matches,
+        role_matches=list(
+            dict.fromkeys(
+                all_roles
+            )
+        ),
 
-        project_matches=project_matches,
+        skill_matches=list(
+            dict.fromkeys(
+                all_skills
+            )
+        ),
 
-        evidence=evidence,
-
-        location_match=location_match,
-
-        hiring_signal=hiring_signal,
+        project_matches=list(
+            dict.fromkeys(
+                all_projects
+            )
+        ),
 
         recruiter_signal_matches=(
-            recruiter_role_matches
+            recruiter_matches
         ),
 
         company_signal_matches=(
-            company_signal_matches
-        )
-    )
-
-
-def calculate_match(
-    job: dict[str, Any],
-    profile: dict[str, Any]
-) -> MatchResult:
-    """
-    Backwards-compatible wrapper.
-
-    The system is recruiter-first, so if the supplied
-    object looks like a recruiter, use recruiter matching.
-    """
-
-    recruiter = {
-        "name": job.get(
-            "name",
-            ""
+            company_matches
         ),
 
-        "email": job.get(
-            "email",
-            ""
+        matching_jobs=best_jobs,
+
+        evidence=evidence,
+
+        location_match=any(
+            job.get(
+                "location_match",
+                False
+            )
+            for job in best_jobs
         ),
 
-        "title": job.get(
-            "title",
-            ""
-        ),
-
-        "company": job.get(
-            "company",
-            ""
-        ),
-
-        "location": job.get(
-            "location",
-            ""
-        ),
-
-        "about": job.get(
-            "description",
-            ""
-        ),
-
-        "linkedin_url": job.get(
-            "url",
-            ""
-        ),
-
-        "email_valid": job.get(
-            "email_valid",
-            False
-        ),
-
-        "corporate_email": job.get(
-            "corporate_email",
-            False
-        ),
-
-        "raw": job.get(
-            "raw",
-            {}
-        )
-    }
-
-    return calculate_recruiter_match(
-        recruiter,
-        profile
+        hiring_signal=True
     )
