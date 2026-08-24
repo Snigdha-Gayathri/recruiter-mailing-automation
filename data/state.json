@@ -1,13 +1,18 @@
 {
   "version": 1,
   "created_at": null,
-  "updated_at": "2026-08-24T15:45:53.929479+00:00",
+  "updated_at": "2026-08-24T17:00:21.859592+00:00",
   "contacts": {},
   "outreach": [],
   "statistics": {
     "discovered": 222,
     "qualified": 0,
     "emails_sent": 0,
-    "emails_failed": 0
+    "emails_failed": 0,
+    "apify_calls": 1
+  },
+  "job_cache": {
+    "updated_at": null,
+    "jobs": []
   }
 }
