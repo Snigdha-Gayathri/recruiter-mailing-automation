@@ -1,0 +1,23 @@
+[
+  {
+    "id": "job-ai-engineer",
+    "title": "AI Engineer",
+    "companyName": "Example AI Labs",
+    "location": "Bengaluru, Karnataka, India",
+    "description": "Build production AI systems using Python, LLMs, RAG, LangChain and machine learning."
+  },
+  {
+    "id": "job-rag-engineer",
+    "title": "RAG / LLM Engineer",
+    "companyName": "Example GenAI Systems",
+    "location": "Hyderabad, Telangana, India",
+    "description": "Develop enterprise RAG systems, LLM applications, agentic AI workflows and retrieval pipelines."
+  },
+  {
+    "id": "job-unrelated",
+    "title": "Civil Project Engineer",
+    "companyName": "Example Construction Company",
+    "location": "Mumbai, Maharashtra, India",
+    "description": "Manage construction projects, civil engineering teams and site operations."
+  }
+]
