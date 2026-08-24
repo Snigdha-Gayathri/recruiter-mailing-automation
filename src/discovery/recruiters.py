@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import time
 from typing import Any
 
 import requests
@@ -9,9 +8,11 @@ import requests
 
 APIFY_API_BASE = "https://api.apify.com/v2"
 
+DEFAULT_ACTOR_ID = "harvestapi~linkedin-profile-search"
+
 
 def get_apify_token() -> str:
-    token = os.getenv("APIFY_API_TOKEN")
+    token = os.getenv("APIFY_API_TOKEN", "").strip()
 
     if not token:
         raise RuntimeError(
@@ -21,8 +22,26 @@ def get_apify_token() -> str:
     return token
 
 
-def build_search_queries(profile: dict[str, Any]) -> list[str]:
-    roles = profile.get("targeting", {}).get("roles", [])
+def get_actor_id() -> str:
+    configured_actor = os.getenv(
+        "APIFY_RECRUITER_ACTOR",
+        ""
+    ).strip()
+
+    if configured_actor:
+        return configured_actor
+
+    return DEFAULT_ACTOR_ID
+
+
+def build_search_queries(
+    profile: dict[str, Any]
+) -> list[str]:
+    roles = (
+        profile
+        .get("targeting", {})
+        .get("roles", [])
+    )
 
     role_groups = [
         "AI Engineer",
@@ -43,13 +62,13 @@ def build_search_queries(profile: dict[str, Any]) -> list[str]:
         "Hiring Manager"
     ]
 
-    queries = []
-
     selected_roles = [
         role
         for role in role_groups
         if role in roles
     ]
+
+    queries = []
 
     for recruiter_title in recruiter_titles:
         for role in selected_roles:
@@ -68,9 +87,18 @@ def run_apify_actor(
 ) -> list[dict[str, Any]]:
     token = get_apify_token()
 
+    encoded_actor_id = actor_id.replace(
+        "/",
+        "~"
+    )
+
     url = (
         f"{APIFY_API_BASE}/acts/"
-        f"{actor_id.replace("/", "~")}/runs"
+        f"{encoded_actor_id}/runs"
+    )
+
+    print(
+        f"Using Apify actor: {actor_id}"
     )
 
     response = requests.post(
@@ -83,17 +111,31 @@ def run_apify_actor(
         timeout=timeout_seconds
     )
 
-    response.raise_for_status()
+    if not response.ok:
+        error_text = response.text[:2000]
+
+        raise RuntimeError(
+            "Apify actor request failed.\n"
+            f"HTTP status: {response.status_code}\n"
+            f"Actor: {actor_id}\n"
+            f"Response: {error_text}"
+        )
 
     payload = response.json()
 
-    run_data = payload.get("data", {})
+    run_data = payload.get(
+        "data",
+        {}
+    )
 
-    dataset_id = run_data.get("defaultDatasetId")
+    dataset_id = run_data.get(
+        "defaultDatasetId"
+    )
 
     if not dataset_id:
         raise RuntimeError(
-            "Apify run completed without a dataset ID."
+            "Apify run completed without a dataset ID.\n"
+            f"Response: {payload}"
         )
 
     dataset_url = (
@@ -110,12 +152,21 @@ def run_apify_actor(
         timeout=timeout_seconds
     )
 
-    dataset_response.raise_for_status()
+    if not dataset_response.ok:
+        raise RuntimeError(
+            "Failed to retrieve Apify dataset.\n"
+            f"HTTP status: "
+            f"{dataset_response.status_code}\n"
+            f"Response: "
+            f"{dataset_response.text[:2000]}"
+        )
 
     items = dataset_response.json()
 
     if not isinstance(items, list):
-        return []
+        raise RuntimeError(
+            "Apify dataset response was not a list."
+        )
 
     return items
 
@@ -123,46 +174,56 @@ def run_apify_actor(
 def search_recruiters(
     profile: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    actor_id = os.getenv(
-        "APIFY_RECRUITER_ACTOR",
-        "harvestapi~linkedin-profile-search"
+    actor_id = get_actor_id()
+
+    if not actor_id:
+        raise RuntimeError(
+            "No Apify recruiter actor configured."
+        )
+
+    queries = build_search_queries(
+        profile
     )
 
-    queries = build_search_queries(profile)
+    if not queries:
+        raise RuntimeError(
+            "No recruiter search queries could "
+            "be generated from profile.json."
+        )
 
-    # Keep one discovery request per workflow run.
-    # This avoids the API explosion that occurred in the previous
-    # recruiter automation.
-    query_string = " OR ".join(
+    # We intentionally keep discovery to one Apify
+    # actor execution per hourly workflow run.
+    combined_query = " OR ".join(
         f"({query})"
         for query in queries[:12]
     )
 
     run_input = {
         "searchQueries": [
-            query_string
+            combined_query
         ],
         "maxItems": 100,
         "searchMode": "people",
         "includeEmails": True
     }
 
-    try:
-        return run_apify_actor(
-            actor_id=actor_id,
-            run_input=run_input
-        )
+    print(
+        f"Generated {len(queries)} recruiter queries."
+    )
 
-    except requests.HTTPError as exc:
-        raise RuntimeError(
-            f"Apify recruiter discovery failed: {exc}"
-        ) from exc
+    print(
+        "Submitting one Apify discovery request..."
+    )
 
-    except Exception:
-        raise
+    return run_apify_actor(
+        actor_id=actor_id,
+        run_input=run_input
+    )
 
 
-def normalize_recruiter(raw: dict[str, Any]) -> dict[str, Any]:
+def normalize_recruiter(
+    raw: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "name": (
             raw.get("name")
@@ -225,14 +286,38 @@ def deduplicate_recruiters(
     result = []
 
     for recruiter in recruiters:
-        email = recruiter.get("email", "").lower()
-        linkedin = recruiter.get("linkedin_url", "").lower()
-        name = recruiter.get("name", "").lower()
+        email = (
+            recruiter.get("email", "")
+            .strip()
+            .lower()
+        )
+
+        linkedin = (
+            recruiter.get("linkedin_url", "")
+            .strip()
+            .lower()
+        )
+
+        name = (
+            recruiter.get("name", "")
+            .strip()
+            .lower()
+        )
+
+        company = (
+            recruiter.get("company", "")
+            .strip()
+            .lower()
+        )
 
         key = (
             email
             or linkedin
-            or name
+            or (
+                f"{name}|{company}"
+                if name or company
+                else ""
+            )
         )
 
         if not key:
