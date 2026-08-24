@@ -1,1 +1,383 @@
+{
+  "candidate": {
+    "name": "Snigdha Gayathri Mandapati",
+    "headline": "AI Engineer | LLM Systems, RAG Pipelines & Multi-Agent Orchestration",
+    "email": "snigdhaisme@gmail.com",
+    "phone": "+91 8247310334",
+    "linkedin": "https://www.linkedin.com/in/snigdha-gayathri/",
+    "github": "https://github.com/Snigdha-Gayathri",
+    "portfolio": "https://snigdha-gayathri-portfolio.netlify.app/",
+    "resume_path": "assets/Snigdha-Gayathri-Resume.pdf",
+    "degree": "B.Tech in Computer Science & Engineering (AI/ML)",
+    "university": "Aditya University, Surampalem",
+    "graduation_year": 2026,
+    "cgpa": 8.30
+  },
 
+  "targeting": {
+    "locations": [
+      "Remote",
+      "Bangalore",
+      "Bengaluru",
+      "Mumbai",
+      "Hyderabad"
+    ],
+
+    "roles": [
+      "AI Engineer",
+      "AI/ML Engineer",
+      "Machine Learning Engineer",
+      "ML Engineer",
+      "Generative AI Engineer",
+      "GenAI Engineer",
+      "LLM Engineer",
+      "Agent Engineer",
+      "AI Agent Engineer",
+      "Applied AI Engineer",
+      "RAG Engineer",
+      "NLP Engineer",
+      "Deep Learning Engineer",
+      "AI Software Engineer",
+      "Junior AI Engineer",
+      "Junior Machine Learning Engineer",
+      "Junior AI/ML Engineer",
+      "Associate AI Engineer",
+      "Associate Machine Learning Engineer",
+      "Associate AI/ML Engineer"
+    ],
+
+    "experience_levels": [
+      "Entry-level",
+      "Junior",
+      "Graduate",
+      "Fresher",
+      "0-2 years",
+      "1-2 years"
+    ]
+  },
+
+  "skills": {
+    "programming": [
+      "Python",
+      "Java",
+      "C++",
+      "JavaScript",
+      "TypeScript",
+      "SQL",
+      "Data Structures",
+      "Algorithms"
+    ],
+
+    "machine_learning": [
+      "Machine Learning",
+      "Deep Learning",
+      "NLP",
+      "Scikit-Learn",
+      "XGBoost",
+      "TensorFlow",
+      "PyTorch",
+      "Model Evaluation",
+      "Model Monitoring",
+      "Drift Detection"
+    ],
+
+    "llm": [
+      "Large Language Models",
+      "Transformers",
+      "Hugging Face Transformers",
+      "Prompt Engineering",
+      "Context Engineering",
+      "LLM Evaluation",
+      "LLM Benchmarking",
+      "LLMOps"
+    ],
+
+    "agentic_ai": [
+      "LangChain",
+      "LangGraph",
+      "LlamaIndex",
+      "Multi-Agent Systems",
+      "Agent Orchestration",
+      "Tool Use",
+      "Function Calling",
+      "MCP",
+      "Agent Evaluation"
+    ],
+
+    "rag": [
+      "RAG",
+      "Retrieval Augmented Generation",
+      "Hybrid Retrieval",
+      "BM25",
+      "Semantic Search",
+      "Embedding Models",
+      "SentenceTransformers",
+      "Cross-Encoder",
+      "Reranking",
+      "Vector Databases",
+      "RAGAS",
+      "Knowledge Graphs",
+      "Multi-Hop Retrieval",
+      "Query Rewriting"
+    ],
+
+    "fine_tuning": [
+      "LoRA",
+      "QLoRA",
+      "Supervised Fine-Tuning",
+      "SFT",
+      "PEFT",
+      "DPO"
+    ],
+
+    "systems": [
+      "FastAPI",
+      "Flask",
+      "Docker",
+      "CI/CD",
+      "PostgreSQL",
+      "MySQL",
+      "Qdrant",
+      "Neo4j",
+      "REST APIs",
+      "Latency Optimization",
+      "Pipeline Profiling",
+      "Caching",
+      "Precomputation"
+    ]
+  },
+
+  "projects": [
+    {
+      "name": "Agentic Placement RAG",
+      "priority": 10,
+      "keywords": [
+        "Agentic RAG",
+        "LangGraph",
+        "FastAPI",
+        "BM25",
+        "Hybrid Retrieval",
+        "Cross-Encoder",
+        "Reranking",
+        "Query Rewriting",
+        "LLM Evaluation",
+        "Security",
+        "Guardrails"
+      ],
+      "evidence": [
+        "9-stage guardrail pipeline",
+        ">=90% test coverage",
+        "hybrid BM25 and semantic retrieval",
+        "cross-encoder reranking",
+        "multi-hop query rewriting",
+        "grounded-output checks",
+        "production deployment on Render"
+      ]
+    },
+
+    {
+      "name": "Enterprise Knowledge Intelligence System",
+      "priority": 10,
+      "keywords": [
+        "LangGraph",
+        "Multi-Agent Systems",
+        "RAG",
+        "Qdrant",
+        "Neo4j",
+        "Knowledge Graphs",
+        "Hybrid Retrieval",
+        "FastAPI",
+        "Gemini"
+      ],
+      "evidence": [
+        "4-agent orchestration",
+        "hybrid vector-graph retrieval",
+        "22% retrieval accuracy improvement",
+        "35% reduction in complex query resolution time",
+        "explainable multi-hop reasoning"
+      ]
+    },
+
+    {
+      "name": "Smart Shelf AI",
+      "priority": 9,
+      "keywords": [
+        "Recommendation Systems",
+        "SentenceTransformers",
+        "PyTorch",
+        "TensorFlow",
+        "PennyLane",
+        "Quantum Machine Learning",
+        "FastAPI",
+        "Caching",
+        "NLP"
+      ],
+      "evidence": [
+        "80x+ repeat-query latency improvement",
+        "6-qubit quantum kernel",
+        "precomputed caching",
+        "local inference",
+        "emotion classification"
+      ]
+    },
+
+    {
+      "name": "LLM Inference Optimization Lab",
+      "priority": 9,
+      "keywords": [
+        "LLM Inference",
+        "PyTorch",
+        "GPU Optimization",
+        "Quantization",
+        "FP16",
+        "BF16",
+        "4-bit",
+        "8-bit",
+        "Benchmarking"
+      ],
+      "evidence": [
+        "inference latency benchmarking",
+        "throughput benchmarking",
+        "GPU memory profiling",
+        "quantization comparisons",
+        "T4 inference optimization"
+      ]
+    },
+
+    {
+      "name": "Deep Learning Performance Profiler",
+      "priority": 9,
+      "keywords": [
+        "PyTorch Profiler",
+        "Performance Engineering",
+        "GPU Profiling",
+        "Bottleneck Detection",
+        "Benchmarking"
+      ],
+      "evidence": [
+        "GPU utilization analysis",
+        "batch-size benchmarking",
+        "performance bottleneck detection",
+        "PyTorch profiling"
+      ]
+    },
+
+    {
+      "name": "NOOA",
+      "priority": 8,
+      "keywords": [
+        "Agent Evaluation",
+        "LLM Evaluation",
+        "Agent Harness",
+        "AI Reliability",
+        "Evaluation"
+      ],
+      "evidence": [
+        "agent-harness evaluation",
+        "agent behavior analysis",
+        "reliability testing"
+      ]
+    },
+
+    {
+      "name": "DPO Playground",
+      "priority": 7,
+      "keywords": [
+        "DPO",
+        "Preference Optimization",
+        "LLM Fine-Tuning"
+      ],
+      "evidence": [
+        "direct preference optimization experimentation"
+      ]
+    },
+
+    {
+      "name": "AI Content Summarizer",
+      "priority": 6,
+      "keywords": [
+        "LLM",
+        "NLP",
+        "Generative AI",
+        "Summarization"
+      ],
+      "evidence": []
+    },
+
+    {
+      "name": "NeuroPlan AI",
+      "priority": 6,
+      "keywords": [
+        "AI",
+        "LLM",
+        "AI Agents"
+      ],
+      "evidence": []
+    },
+
+    {
+      "name": "Automatic Image Colorization",
+      "priority": 5,
+      "keywords": [
+        "Computer Vision",
+        "Deep Learning",
+        "Image Processing"
+      ],
+      "evidence": []
+    },
+
+    {
+      "name": "Student Grade Predictor",
+      "priority": 3,
+      "keywords": [
+        "Machine Learning",
+        "Flask",
+        "Prediction"
+      ],
+      "evidence": []
+    }
+  ],
+
+  "recruiter_targets": {
+    "preferred_titles": [
+      "Technical Recruiter",
+      "Technical Talent Acquisition",
+      "Talent Acquisition Partner",
+      "Talent Acquisition Specialist",
+      "Talent Partner",
+      "Recruiter",
+      "Senior Recruiter",
+      "IT Recruiter",
+      "Technology Recruiter",
+      "Engineering Recruiter",
+      "Technical Sourcer",
+      "Talent Sourcer",
+      "Hiring Manager",
+      "Engineering Manager",
+      "AI Hiring Manager",
+      "ML Hiring Manager"
+    ],
+
+    "preferred_company_signals": [
+      "AI",
+      "Artificial Intelligence",
+      "Machine Learning",
+      "Generative AI",
+      "LLM",
+      "SaaS",
+      "Fintech",
+      "Healthtech",
+      "Enterprise AI",
+      "Developer Tools"
+    ]
+  },
+
+  "matching": {
+    "minimum_score": 70,
+    "minimum_role_match": 1,
+    "minimum_skill_match": 2,
+    "require_location_match": true,
+    "require_hiring_signal": true,
+    "prefer_current_opening": true
+  }
+}
