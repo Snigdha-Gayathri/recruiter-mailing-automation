@@ -1,18 +1,29 @@
 {
-  "version": 1,
-  "created_at": null,
-  "updated_at": "2026-08-24T17:08:08.514128+00:00",
-  "contacts": {},
-  "outreach": [],
+  "contacted_emails": [],
+  "contacted_linkedin_urls": [],
+  "seen_recruiters": [],
+  "templates_used": {},
+  "runs": 1,
+  "emails_sent": 0,
+  "emails_failed": 0,
+  "apify_calls": 1,
+  "discovered": 0,
+  "qualified": 0,
+  "job_cache": {
+    "updated_at": null,
+    "jobs": []
+  },
+  "job_cache_timestamp": 0,
   "statistics": {
     "discovered": 222,
     "qualified": 0,
     "emails_sent": 0,
     "emails_failed": 0,
-    "apify_calls": 3
+    "apify_calls": 4
   },
-  "job_cache": {
-    "updated_at": null,
-    "jobs": []
-  }
+  "version": 1,
+  "created_at": null,
+  "updated_at": "2026-08-24T17:08:08.514128+00:00",
+  "contacts": {},
+  "outreach": []
 }
