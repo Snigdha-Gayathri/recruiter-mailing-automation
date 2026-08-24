@@ -133,24 +133,7 @@ def build_search_query(
     profile: dict[str, Any],
 ) -> str:
 
-    focus = get_search_focus()
-
-    role_terms = [
-        "AI",
-        "Machine Learning",
-        "Generative AI",
-        "LLM",
-        "GenAI",
-        "RAG",
-        "AI Agents",
-    ]
-
-    return (
-        f"{focus} "
-        f"AI Machine Learning "
-        f"Generative AI LLM GenAI RAG "
-        f"AI Agents"
-    )
+    return get_search_focus()
 
 
 def build_run_input(
