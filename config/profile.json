@@ -372,11 +372,11 @@
     ]
   },
 
-  "matching": {
+ "matching": {
   "minimum_score": 55,
   "minimum_recruiter_signal": 0,
   "require_location_match": true,
-  "require_email": true,
+  "require_email": false,
   "prefer_current_opening": true
 }
 }
