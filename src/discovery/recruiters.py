@@ -11,28 +11,6 @@ APIFY_BASE_URL = "https://api.apify.com/v2"
 DEFAULT_ACTOR_ID = "harvestapi/linkedin-profile-search"
 
 
-# Do not use a generic fuzzy search such as "Recruiter".
-# HarvestAPI supports strict currentJobTitles filtering, which is
-# substantially more reliable for recruiter discovery.
-RECRUITER_CURRENT_JOB_TITLES = [
-    "Recruiter",
-    "Technical Recruiter",
-    "Senior Technical Recruiter",
-    "Lead Technical Recruiter",
-    "Engineering Recruiter",
-    "IT Recruiter",
-    "Technology Recruiter",
-    "Tech Recruiter",
-    "Talent Acquisition Partner",
-    "Talent Acquisition Specialist",
-    "Talent Acquisition Manager",
-    "Technical Sourcer",
-    "Talent Sourcer",
-    "Recruiting Lead",
-    "Head of Recruitment",
-]
-
-
 RECRUITER_SEARCH_QUERIES = [
     "Recruiter",
     "Technical Recruiter",
@@ -47,24 +25,57 @@ RECRUITER_SEARCH_QUERIES = [
 ]
 
 
-# Recruiter discovery is focused on actual Indian tech hubs.
-# "Remote" is intentionally not used as a recruiter location because
-# it is a job-workplace concept, not a reliable LinkedIn people location.
 TARGET_LOCATIONS = [
     "Bengaluru",
-    "Bangalore",
     "Hyderabad",
     "Mumbai",
+    "Bangalore",
+    "Remote",
 ]
 
 
-# Kept for compatibility with main.py and recruiter_search_state.json.
-# The actual actor call below uses all titles and all locations at once.
+# IMPORTANT:
+# We deliberately use ONE segment per run.
+# GitHub Actions runs hourly, so the search rotates through these
+# combinations without making multiple Apify calls in one run.
 RECRUITER_SEARCH_SEGMENTS = [
-    (
-        "Technical Recruiter",
-        "Bengaluru, Bangalore, Hyderabad, Mumbai",
-    ),
+    ("Recruiter", "Bengaluru"),
+    ("Recruiter", "Hyderabad"),
+    ("Recruiter", "Mumbai"),
+    ("Recruiter", "Bangalore"),
+    ("Recruiter", "Remote"),
+
+    ("Technical Recruiter", "Bengaluru"),
+    ("Technical Recruiter", "Hyderabad"),
+    ("Technical Recruiter", "Mumbai"),
+
+    ("Engineering Recruiter", "Bengaluru"),
+    ("Engineering Recruiter", "Hyderabad"),
+    ("Engineering Recruiter", "Mumbai"),
+
+    ("IT Recruiter", "Bengaluru"),
+    ("IT Recruiter", "Hyderabad"),
+    ("IT Recruiter", "Mumbai"),
+
+    ("Talent Acquisition", "Bengaluru"),
+    ("Talent Acquisition", "Hyderabad"),
+    ("Talent Acquisition", "Mumbai"),
+
+    ("Talent Acquisition Partner", "Bengaluru"),
+    ("Talent Acquisition Partner", "Hyderabad"),
+    ("Talent Acquisition Partner", "Mumbai"),
+
+    ("Technology Recruiter", "Bengaluru"),
+    ("Technology Recruiter", "Hyderabad"),
+    ("Technology Recruiter", "Mumbai"),
+
+    ("Technical Sourcer", "Bengaluru"),
+    ("Technical Sourcer", "Hyderabad"),
+    ("Technical Sourcer", "Mumbai"),
+
+    ("Talent Sourcer", "Bengaluru"),
+    ("Talent Sourcer", "Hyderabad"),
+    ("Talent Sourcer", "Mumbai"),
 ]
 
 
@@ -482,7 +493,11 @@ def score_recruiter(
         score += 10
 
         reasons.append(
-            "Email available"
+            "Public email available"
+        )
+    else:
+        reasons.append(
+            "No public email, route to LinkedIn outreach package"
         )
 
     irrelevant_hits = _contains_any(
@@ -528,6 +543,8 @@ def score_recruiter(
 
         "email": email,
 
+        "email_available": bool(email),
+
         "location": recruiter[
             "location"
         ],
@@ -546,9 +563,7 @@ def is_qualified_recruiter(
     profile: dict[str, Any],
     minimum_score: float = 45.0,
 ) -> bool:
-    result = score_recruiter(
-        profile
-    )
+    result = score_recruiter(profile)
 
     if result["score"] < minimum_score:
         return False
@@ -579,11 +594,6 @@ def is_qualified_recruiter(
     ):
         return False
 
-    # We ultimately need an actual address because this pipeline
-    # sends email. Never fabricate an address.
-    if not result["email"]:
-        return False
-
     irrelevant_hits = _contains_any(
         text,
         IRRELEVANT_KEYWORDS,
@@ -595,6 +605,10 @@ def is_qualified_recruiter(
     ):
         return False
 
+    # NO EMAIL REQUIREMENT HERE.
+    #
+    # A recruiter without a public email is still a valid recruiter.
+    # They are routed to the LinkedIn connection + DM package path.
     return True
 
 
@@ -615,10 +629,8 @@ def qualify_recruiters(
             profile
         )
 
-        recruiter["_match"] = (
-            score_recruiter(
-                profile
-            )
+        recruiter["_match"] = score_recruiter(
+            profile
         )
 
         qualified.append(
@@ -725,56 +737,22 @@ def _run_apify_actor(
 def search_recruiters(
     candidate_profile: dict[str, Any],
     max_results: int = 25,
-    search_index: int = 0,
     search_query: str | None = None,
     search_location: str | None = None,
 ) -> list[dict[str, Any]]:
-    """
-    Perform exactly ONE Apify recruiter search.
-
-    The old implementation searched:
-
-        searchQuery = "Recruiter"
-        locations = ["one city"]
-
-    That was producing zero-result runs.
-
-    HarvestAPI supports currentJobTitles directly. We therefore
-    search recruiter titles and all relevant target cities in one
-    call. This keeps the one-call-per-run budget intact.
-    """
-
-    del candidate_profile
-    del search_index
-    del search_query
-    del search_location
-
     actor_id = os.getenv(
         "APIFY_RECRUITER_ACTOR",
         DEFAULT_ACTOR_ID,
     )
 
-    print(
-        f"Using Apify actor: {actor_id}"
+    query = (
+        search_query
+        or "Recruiter"
     )
 
-    print(
-        "Recruiter discovery mode: "
-        "currentJobTitles + locations"
-    )
-
-    print(
-        "Recruiter titles: "
-        + ", ".join(
-            RECRUITER_CURRENT_JOB_TITLES
-        )
-    )
-
-    print(
-        "Recruiter locations: "
-        + ", ".join(
-            TARGET_LOCATIONS
-        )
+    location = (
+        search_location
+        or "Bengaluru"
     )
 
     actor_input = {
@@ -782,11 +760,16 @@ def search_recruiters(
             "Full + email search"
         ),
 
-        "currentJobTitles": (
-            RECRUITER_CURRENT_JOB_TITLES
-        ),
+        # IMPORTANT:
+        # Use the fuzzy search query that previously returned
+        # real recruiter profiles.
+        #
+        # Do NOT combine this with currentJobTitles.
+        "searchQuery": query,
 
-        "locations": TARGET_LOCATIONS,
+        "locations": [
+            location
+        ],
 
         "maxItems": max_results,
 
@@ -796,12 +779,27 @@ def search_recruiters(
     }
 
     print(
-        "Apify input:"
+        f"Using Apify actor: {actor_id}"
     )
 
     print(
-        actor_input
+        "Recruiter discovery mode: "
+        "searchQuery + location"
     )
+
+    print(
+        f"Recruiter query: {query}"
+    )
+
+    print(
+        f"Recruiter location: {location}"
+    )
+
+    print(
+        "Apify input:"
+    )
+
+    print(actor_input)
 
     results = _run_apify_actor(
         actor_id=actor_id,
@@ -813,9 +811,10 @@ def search_recruiters(
     )
 
     email_count = sum(
-        1
+        bool(
+            _get_email(item)
+        )
         for item in results
-        if _get_email(item)
     )
 
     print(
@@ -827,13 +826,6 @@ def search_recruiters(
         print(
             "WARNING: HarvestAPI returned "
             "zero recruiter profiles."
-        )
-
-    elif email_count == 0:
-        print(
-            "WARNING: Recruiter profiles were "
-            "found, but HarvestAPI did not return "
-            "an email for any of them."
         )
 
     return results
