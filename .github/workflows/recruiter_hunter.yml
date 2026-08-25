@@ -31,7 +31,7 @@ jobs:
         run: |
           test -f src/main.py
           test -f src/discovery/recruiters.py
-          test -f src/discovery/jobs.py
+          test -f src/discovery/enrichment.py
           test -f src/matching/scorer.py
           test -f src/outreach/gmail.py
           test -f src/outreach/personalization.py
@@ -43,7 +43,6 @@ jobs:
           python -m py_compile \
             src/main.py \
             src/discovery/recruiters.py \
-            src/discovery/jobs.py \
             src/discovery/enrichment.py \
             src/matching/scorer.py \
             src/outreach/gmail.py \
@@ -57,7 +56,9 @@ jobs:
           APIFY_RECRUITER_ACTOR: "harvestapi/linkedin-profile-search"
 
           MAX_APIFY_CALLS_PER_RUN: "1"
+
           MAX_EMAILS_PER_RUN: "5"
+          MAX_LINKEDIN_PACKAGES_PER_RUN: "10"
 
           STATE_PATH: "data/state.json"
 
