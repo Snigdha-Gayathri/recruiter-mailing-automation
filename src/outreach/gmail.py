@@ -46,10 +46,12 @@ def get_gmail_credentials() -> Credentials:
     credentials = Credentials(
         token=None,
         refresh_token=refresh_token,
-        token_uri="https://oauth2.googleapis.com/token",
+        token_uri=(
+            "https://oauth2.googleapis.com/token"
+        ),
         client_id=client_id,
         client_secret=client_secret,
-        scopes=GMAIL_SCOPES
+        scopes=GMAIL_SCOPES,
     )
 
     credentials.refresh(
@@ -66,7 +68,7 @@ def create_gmail_service():
         "gmail",
         "v1",
         credentials=credentials,
-        cache_discovery=False
+        cache_discovery=False,
     )
 
 
@@ -75,7 +77,7 @@ def create_message(
     recipient: str,
     subject: str,
     body: str,
-    attachment_path: str
+    attachment_path: str | None = None,
 ) -> dict:
     message = EmailMessage()
 
@@ -83,32 +85,49 @@ def create_message(
     message["To"] = recipient
     message["Subject"] = subject
 
-    message.set_content(body)
-
-    path = Path(
-        attachment_path
+    message.set_content(
+        body
     )
 
-    if not path.exists():
-        raise FileNotFoundError(
-            f"Resume not found: {path}"
+    if attachment_path:
+        path = Path(
+            attachment_path
         )
 
-    with path.open(
-        "rb"
-    ) as file:
-        resume_bytes = file.read()
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Attachment not found: {path}"
+            )
 
-    message.add_attachment(
-        resume_bytes,
-        maintype="application",
-        subtype="pdf",
-        filename=path.name
+        with path.open(
+            "rb"
+        ) as file:
+            attachment_bytes = file.read()
+
+        suffix = (
+            path.suffix.lower()
+        )
+
+        if suffix == ".pdf":
+            maintype = "application"
+            subtype = "pdf"
+        else:
+            maintype = "application"
+            subtype = "octet-stream"
+
+        message.add_attachment(
+            attachment_bytes,
+            maintype=maintype,
+            subtype=subtype,
+            filename=path.name,
+        )
+
+    encoded = (
+        base64.urlsafe_b64encode(
+            message.as_bytes()
+        )
+        .decode()
     )
-
-    encoded = base64.urlsafe_b64encode(
-        message.as_bytes()
-    ).decode()
 
     return {
         "raw": encoded
@@ -119,7 +138,7 @@ def send_email(
     recipient: str,
     subject: str,
     body: str,
-    attachment_path: str
+    attachment_path: str | None = None,
 ) -> str:
     sender = os.getenv(
         "SENDER_EMAIL"
@@ -137,7 +156,7 @@ def send_email(
         recipient=recipient,
         subject=subject,
         body=body,
-        attachment_path=attachment_path
+        attachment_path=attachment_path,
     )
 
     result = (
@@ -146,7 +165,7 @@ def send_email(
         .messages()
         .send(
             userId="me",
-            body=message
+            body=message,
         )
         .execute()
     )
