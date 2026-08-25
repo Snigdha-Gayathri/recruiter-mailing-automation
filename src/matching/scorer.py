@@ -87,21 +87,28 @@ class RecruiterMatch:
     score: float
     recommendation: str
     recruiter: dict[str, Any]
+
     matching_jobs: list[dict[str, Any]] = field(
         default_factory=list
     )
+
     role_matches: list[str] = field(
         default_factory=list
     )
+
     skill_matches: list[str] = field(
         default_factory=list
     )
+
     project_matches: list[str] = field(
         default_factory=list
     )
+
     reasons: list[str] = field(
         default_factory=list
     )
+
+    outreach_channel: str = "linkedin"
 
 
 def _normalise(
@@ -173,47 +180,13 @@ def _job_company(
         dict,
     ):
         return _normalise(
-            company.get(
-                "name"
-            )
-            or company.get(
-                "companyName"
-            )
+            company.get("name")
+            or company.get("companyName")
         )
 
     return _normalise(
-        job.get(
-            "companyName"
-        )
+        job.get("companyName")
         or company
-    )
-
-
-def _job_location(
-    job: dict[str, Any],
-) -> str:
-    location = job.get(
-        "location"
-    )
-
-    if isinstance(
-        location,
-        dict,
-    ):
-        return _normalise(
-            location.get(
-                "name"
-            )
-            or location.get(
-                "city"
-            )
-            or location.get(
-                "text"
-            )
-        )
-
-    return _normalise(
-        location
     )
 
 
@@ -222,9 +195,7 @@ def _company_matches(
     job: dict[str, Any],
 ) -> bool:
     recruiter_company = _normalise(
-        recruiter.get(
-            "company"
-        )
+        recruiter.get("company")
     )
 
     job_company = _job_company(
@@ -245,9 +216,7 @@ def _profile_role_hits(
     recruiter: dict[str, Any],
 ) -> list[str]:
     return _contains(
-        _flatten(
-            recruiter
-        ),
+        _flatten(recruiter),
         TARGET_ROLE_KEYWORDS,
     )
 
@@ -256,9 +225,7 @@ def _job_role_hits(
     job: dict[str, Any],
 ) -> list[str]:
     return _contains(
-        _flatten(
-            job
-        ),
+        _flatten(job),
         TARGET_ROLE_KEYWORDS,
     )
 
@@ -267,9 +234,7 @@ def _job_skill_hits(
     job: dict[str, Any],
 ) -> list[str]:
     return _contains(
-        _flatten(
-            job
-        ),
+        _flatten(job),
         TECHNOLOGY_KEYWORDS,
     )
 
@@ -292,13 +257,9 @@ def _candidate_skill_hits(
         skills,
         dict,
     ):
-        skill_text = _flatten(
-            skills
-        )
-
         hits.extend(
             _contains(
-                skill_text,
+                _flatten(skills),
                 TECHNOLOGY_KEYWORDS,
             )
         )
@@ -319,15 +280,11 @@ def calculate_recruiter_match(
     )
 
     title = _normalise(
-        recruiter.get(
-            "title"
-        )
+        recruiter.get("title")
     )
 
     email = _normalise(
-        recruiter.get(
-            "email"
-        )
+        recruiter.get("email")
     )
 
     recruiter_roles = _profile_role_hits(
@@ -345,6 +302,7 @@ def calculate_recruiter_match(
     )
 
     score = 0.0
+
     reasons: list[str] = []
 
     if any(
@@ -352,6 +310,7 @@ def calculate_recruiter_match(
         for keyword in RECRUITER_KEYWORDS
     ):
         score += 25
+
         reasons.append(
             "Direct recruiting or talent-acquisition title."
         )
@@ -390,9 +349,7 @@ def calculate_recruiter_match(
         )
 
     location = _normalise(
-        recruiter.get(
-            "location"
-        )
+        recruiter.get("location")
     )
 
     if any(
@@ -400,14 +357,20 @@ def calculate_recruiter_match(
         for target in TARGET_LOCATIONS
     ):
         score += 10
+
         reasons.append(
             "Recruiter is in a target location."
         )
 
     if email:
         score += 15
+
         reasons.append(
             "Direct email is available."
+        )
+    else:
+        reasons.append(
+            "No public email. LinkedIn outreach package required."
         )
 
     if irrelevant_hits:
@@ -444,14 +407,10 @@ def calculate_recruiter_match(
             matching_jobs,
             key=lambda job: (
                 len(
-                    _job_role_hits(
-                        job
-                    )
+                    _job_role_hits(job)
                 ),
                 len(
-                    _job_skill_hits(
-                        job
-                    )
+                    _job_skill_hits(job)
                 ),
             ),
         )
@@ -510,7 +469,7 @@ def calculate_recruiter_match(
         else float(
             profile.get(
                 "matching",
-                {}
+                {},
             ).get(
                 "minimum_score",
                 55,
@@ -518,13 +477,20 @@ def calculate_recruiter_match(
         )
     )
 
+    # THIS IS THE IMPORTANT CHANGE:
+    #
+    # A recruiter can qualify without an email.
+    # The outreach channel is selected afterwards.
     recommendation = (
         "OUTREACH"
-        if (
-            score >= threshold
-            and bool(email)
-        )
+        if score >= threshold
         else "REJECT"
+    )
+
+    outreach_channel = (
+        "email"
+        if email
+        else "linkedin"
     )
 
     project_matches: list[str] = []
@@ -551,9 +517,8 @@ def calculate_recruiter_match(
         )
 
         if any(
-            _normalise(
-                keyword
-            ) in company_job_text
+            _normalise(keyword)
+            in company_job_text
             for keyword in keywords
         ):
             project_matches.append(
@@ -590,9 +555,7 @@ def calculate_recruiter_match(
                 )
             )
             for project in ordered_projects[:3]
-            if project.get(
-                "name"
-            )
+            if project.get("name")
         ]
 
     return RecruiterMatch(
@@ -617,6 +580,7 @@ def calculate_recruiter_match(
         ),
         project_matches=project_matches[:3],
         reasons=reasons,
+        outreach_channel=outreach_channel,
     )
 
 
