@@ -6,7 +6,9 @@ import sys
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(
+    __file__
+).resolve().parents[1]
 
 SRC = ROOT / "src"
 
@@ -17,20 +19,36 @@ if str(SRC) not in sys.path:
     )
 
 
-from discovery.enrichment import enrich_recruiter
+from discovery.enrichment import (
+    enrich_recruiter,
+)
+
 from discovery.recruiters import (
     RECRUITER_SEARCH_SEGMENTS,
     deduplicate_recruiters,
     normalize_recruiter,
     search_recruiters,
 )
-from matching.scorer import calculate_recruiter_match
-from outreach.gmail import send_email
-from outreach.personalization import generate_personalization
+
+from matching.scorer import (
+    calculate_recruiter_match,
+)
+
+from outreach.gmail import (
+    send_email,
+)
+
+from outreach.personalization import (
+    generate_linkedin_messages,
+    generate_personalization,
+)
+
 from outreach.templates import (
     choose_template,
+    render_linkedin_package,
     render_template,
 )
+
 from storage.database import (
     get_cached_jobs,
     has_been_contacted,
@@ -55,6 +73,14 @@ MAX_EMAILS_PER_RUN = int(
     os.getenv(
         "MAX_EMAILS_PER_RUN",
         "5",
+    )
+)
+
+
+MAX_LINKEDIN_PACKAGES_PER_RUN = int(
+    os.getenv(
+        "MAX_LINKEDIN_PACKAGES_PER_RUN",
+        "10",
     )
 )
 
@@ -95,6 +121,7 @@ def load_search_state() -> dict:
                 encoding="utf-8"
             )
         )
+
     except (
         OSError,
         json.JSONDecodeError,
@@ -104,7 +131,10 @@ def load_search_state() -> dict:
             "runs": 0,
         }
 
-    if not isinstance(data, dict):
+    if not isinstance(
+        data,
+        dict,
+    ):
         return {
             "segment_index": 0,
             "runs": 0,
@@ -117,6 +147,7 @@ def load_search_state() -> dict:
                 0,
             )
         ),
+
         "runs": int(
             data.get(
                 "runs",
@@ -160,31 +191,13 @@ def consume_apify_call(
             f"{MAX_APIFY_CALLS_PER_RUN}"
         )
 
-    state["_run_apify_calls"] = calls
+    state[
+        "_run_apify_calls"
+    ] = calls
 
     increment_stat(
         state,
         "apify_calls",
-    )
-
-
-def recruiter_has_valid_email(
-    recruiter: dict,
-) -> bool:
-    email = str(
-        recruiter.get(
-            "email",
-            "",
-        )
-        or ""
-    ).strip()
-
-    return bool(
-        email
-        and recruiter.get(
-            "email_valid",
-            False,
-        )
     )
 
 
@@ -198,7 +211,9 @@ def discover_recruiters(
             "segment_index",
             0,
         )
-        % len(RECRUITER_SEARCH_SEGMENTS)
+        % len(
+            RECRUITER_SEARCH_SEGMENTS
+        )
     )
 
     search_query, search_location = (
@@ -208,7 +223,9 @@ def discover_recruiters(
     )
 
     print()
-    print("RECRUITER DISCOVERY")
+    print(
+        "RECRUITER DISCOVERY"
+    )
 
     print(
         "Recruiter search strategy: "
@@ -216,7 +233,14 @@ def discover_recruiters(
     )
 
     print(
-        f"Search query: {search_query}"
+        f"Search segment: "
+        f"{segment_index + 1}/"
+        f"{len(RECRUITER_SEARCH_SEGMENTS)}"
+    )
+
+    print(
+        f"Search query: "
+        f"{search_query}"
     )
 
     print(
@@ -235,12 +259,16 @@ def discover_recruiters(
         search_location=search_location,
     )
 
-    consume_apify_call(state)
+    consume_apify_call(
+        state
+    )
 
     recruiters = []
 
     for item in raw:
-        recruiter = normalize_recruiter(item)
+        recruiter = normalize_recruiter(
+            item
+        )
 
         recruiter = enrich_recruiter(
             recruiter
@@ -251,7 +279,9 @@ def discover_recruiters(
             recruiter,
         )
 
-        recruiters.append(recruiter)
+        recruiters.append(
+            recruiter
+        )
 
     recruiters = deduplicate_recruiters(
         recruiters
@@ -316,11 +346,6 @@ def qualify_recruiters(
         ):
             continue
 
-        if not recruiter_has_valid_email(
-            recruiter
-        ):
-            continue
-
         match = calculate_recruiter_match(
             recruiter,
             jobs,
@@ -352,9 +377,33 @@ def qualify_recruiters(
         len(qualified),
     )
 
+    email_count = sum(
+        bool(
+            recruiter.get(
+                "email"
+            )
+        )
+        for recruiter, _ in qualified
+    )
+
+    linkedin_count = (
+        len(qualified)
+        - email_count
+    )
+
     print(
         f"Qualified recruiters: "
         f"{len(qualified)}"
+    )
+
+    print(
+        f"  Email outreach: "
+        f"{email_count}"
+    )
+
+    print(
+        f"  LinkedIn packages: "
+        f"{linkedin_count}"
     )
 
     return qualified
@@ -367,7 +416,9 @@ def send_to_recruiter(
     profile: dict,
     state: dict,
 ) -> bool:
-    candidate = profile["candidate"]
+    candidate = profile[
+        "candidate"
+    ]
 
     template_name = choose_template(
         recruiter,
@@ -393,7 +444,9 @@ def send_to_recruiter(
 
     resume_path = (
         ROOT
-        / candidate["resume_path"]
+        / candidate[
+            "resume_path"
+        ]
     )
 
     if not resume_path.exists():
@@ -404,7 +457,7 @@ def send_to_recruiter(
 
     print()
     print(
-        f"Preparing email for "
+        f"EMAIL OUTREACH -> "
         f"{recruiter.get('name', 'Unknown')}"
     )
 
@@ -423,14 +476,11 @@ def send_to_recruiter(
         f"{match.score}"
     )
 
-    print(
-        f"Template: "
-        f"{template_name}"
-    )
-
     try:
         message_id = send_email(
-            recipient=recruiter["email"],
+            recipient=recruiter[
+                "email"
+            ],
             subject=subject,
             body=body,
             attachment_path=str(
@@ -445,6 +495,7 @@ def send_to_recruiter(
             subject=subject,
             message_id=message_id,
             status="sent",
+            outreach_channel="email",
         )
 
         record_template_usage(
@@ -457,7 +508,9 @@ def send_to_recruiter(
             "emails_sent",
         )
 
-        print("EMAIL SENT")
+        print(
+            "EMAIL SENT"
+        )
 
         print(
             f"Message ID: "
@@ -467,7 +520,9 @@ def send_to_recruiter(
         return True
 
     except Exception as exc:
-        print("EMAIL FAILED")
+        print(
+            "EMAIL FAILED"
+        )
 
         print(
             f"Reason: {exc}"
@@ -480,6 +535,7 @@ def send_to_recruiter(
             subject=subject,
             message_id=None,
             status="failed",
+            outreach_channel="email",
         )
 
         increment_stat(
@@ -490,22 +546,157 @@ def send_to_recruiter(
         return False
 
 
+def send_linkedin_package(
+    recruiter: dict,
+    match,
+    profile: dict,
+    state: dict,
+) -> bool:
+    candidate = profile[
+        "candidate"
+    ]
+
+    messages = generate_linkedin_messages(
+        recruiter,
+        match,
+        candidate,
+    )
+
+    subject, body = render_linkedin_package(
+        recruiter=recruiter,
+        match=match,
+        candidate=candidate,
+        connection_note=messages[
+            "connection_note"
+        ],
+        dm_message=messages[
+            "dm_message"
+        ],
+    )
+
+    resume_path = (
+        ROOT
+        / candidate[
+            "resume_path"
+        ]
+    )
+
+    print()
+    print(
+        f"LINKEDIN PACKAGE -> "
+        f"{recruiter.get('name', 'Unknown')}"
+    )
+
+    print(
+        f"LinkedIn: "
+        f"{recruiter.get('linkedinUrl', '')}"
+    )
+
+    print(
+        f"Company: "
+        f"{recruiter.get('company', '')}"
+    )
+
+    print(
+        f"Match score: "
+        f"{match.score}"
+    )
+
+    owner_email = os.getenv(
+        "SENDER_EMAIL"
+    )
+
+    if not owner_email:
+        raise RuntimeError(
+            "SENDER_EMAIL is required so "
+            "LinkedIn outreach packages can "
+            "be delivered to you."
+        )
+
+    try:
+        message_id = send_email(
+            recipient=owner_email,
+            subject=subject,
+            body=body,
+            attachment_path=(
+                str(resume_path)
+                if resume_path.exists()
+                else None
+            ),
+        )
+
+        record_contact(
+            state=state,
+            recruiter=recruiter,
+            template="linkedin_package",
+            subject=subject,
+            message_id=message_id,
+            status="linkedin_package_sent",
+            outreach_channel="linkedin",
+        )
+
+        increment_stat(
+            state,
+            "linkedin_packages_sent",
+        )
+
+        print(
+            "LINKEDIN PACKAGE SENT TO CANDIDATE"
+        )
+
+        print(
+            f"Message ID: "
+            f"{message_id}"
+        )
+
+        return True
+
+    except Exception as exc:
+        print(
+            "LINKEDIN PACKAGE FAILED"
+        )
+
+        print(
+            f"Reason: {exc}"
+        )
+
+        record_contact(
+            state=state,
+            recruiter=recruiter,
+            template="linkedin_package",
+            subject=subject,
+            message_id=None,
+            status="failed",
+            outreach_channel="linkedin",
+        )
+
+        return False
+
+
 def main() -> None:
     print("=" * 70)
-    print("AI RECRUITER HUNTER")
+    print(
+        "AI RECRUITER HUNTER"
+    )
     print("=" * 70)
 
     profile = load_profile()
 
     state = load_state()
 
-    state["_run_apify_calls"] = 0
+    state[
+        "_run_apify_calls"
+    ] = 0
 
-    increment_run(state)
+    increment_run(
+        state
+    )
 
     search_state = load_search_state()
 
-    candidate = profile["candidate"]
+    candidate = profile[
+        "candidate"
+    ]
 
     print(
         f"Candidate: "
@@ -528,7 +719,9 @@ def main() -> None:
         f"{MAX_APIFY_CALLS_PER_RUN}"
     )
 
-    jobs = get_cached_jobs(state)
+    jobs = get_cached_jobs(
+        state
+    )
 
     recruiters = discover_recruiters(
         profile,
@@ -546,8 +739,7 @@ def main() -> None:
     if not qualified:
         print()
         print(
-            "No qualified new recruiters "
-            "found."
+            "No qualified new recruiters found."
         )
 
     else:
@@ -557,7 +749,9 @@ def main() -> None:
         )
 
         for recruiter, match in qualified[:10]:
-            print("-" * 70)
+            print(
+                "-" * 70
+            )
 
             print(
                 f"{recruiter.get('name', 'Unknown')} "
@@ -570,33 +764,62 @@ def main() -> None:
             )
 
             print(
-                f"{recruiter.get('email', '')}"
+                f"Email: "
+                f"{recruiter.get('email', '') or 'NOT PUBLICLY AVAILABLE'}"
             )
 
             print(
-                f"Score: {match.score}"
+                f"LinkedIn: "
+                f"{recruiter.get('linkedinUrl', '')}"
             )
 
-            if match.matching_jobs:
-                print(
-                    "Matching jobs: "
-                    f"{len(match.matching_jobs)}"
-                )
+            print(
+                f"Score: "
+                f"{match.score}"
+            )
 
-        selected = qualified[
+            print(
+                f"Route: "
+                f"{match.outreach_channel}"
+            )
+
+        email_selected = [
+            item
+            for item in qualified
+            if item[0].get(
+                "email"
+            )
+        ][
             :MAX_EMAILS_PER_RUN
+        ]
+
+        linkedin_selected = [
+            item
+            for item in qualified
+            if not item[0].get(
+                "email"
+            )
+        ][
+            :MAX_LINKEDIN_PACKAGES_PER_RUN
         ]
 
         print()
         print(
-            f"SELECTED FOR OUTREACH: "
-            f"{len(selected)}"
+            f"EMAILS SELECTED: "
+            f"{len(email_selected)}"
+        )
+
+        print(
+            f"LINKEDIN PACKAGES SELECTED: "
+            f"{len(linkedin_selected)}"
         )
 
         for index, (
             recruiter,
             match,
-        ) in enumerate(selected):
+        ) in enumerate(
+            email_selected
+        ):
             send_to_recruiter(
                 recruiter,
                 match,
@@ -605,9 +828,28 @@ def main() -> None:
                 state,
             )
 
-            save_state(state)
+            save_state(
+                state
+            )
 
-    search_state["segment_index"] = (
+        for (
+            recruiter,
+            match,
+        ) in linkedin_selected:
+            send_linkedin_package(
+                recruiter,
+                match,
+                profile,
+                state,
+            )
+
+            save_state(
+                state
+            )
+
+    search_state[
+        "segment_index"
+    ] = (
         (
             search_state.get(
                 "segment_index",
@@ -615,10 +857,14 @@ def main() -> None:
             )
             + 1
         )
-        % len(RECRUITER_SEARCH_SEGMENTS)
+        % len(
+            RECRUITER_SEARCH_SEGMENTS
+        )
     )
 
-    search_state["runs"] = (
+    search_state[
+        "runs"
+    ] = (
         search_state.get(
             "runs",
             0,
@@ -626,7 +872,9 @@ def main() -> None:
         + 1
     )
 
-    save_search_state(search_state)
+    save_search_state(
+        search_state
+    )
 
     calls = state.get(
         "_run_apify_calls",
@@ -645,11 +893,15 @@ def main() -> None:
         None,
     )
 
-    save_state(state)
+    save_state(
+        state
+    )
 
     print()
     print("=" * 70)
-    print("RUN COMPLETE")
+    print(
+        "RUN COMPLETE"
+    )
     print("=" * 70)
 
 
