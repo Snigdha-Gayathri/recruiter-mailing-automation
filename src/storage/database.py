@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -11,15 +12,24 @@ DEFAULT_STATE: dict[str, Any] = {
     "contacted_linkedin_urls": [],
     "seen_recruiters": [],
     "templates_used": {},
+
     "runs": 0,
+
     "emails_sent": 0,
     "emails_failed": 0,
+
+    "linkedin_packages_sent": 0,
+
     "apify_calls": 0,
     "discovered": 0,
     "qualified": 0,
+
     "job_cache": [],
     "job_cache_timestamp": 0,
+
     "statistics": {},
+
+    "contacts": [],
 }
 
 
@@ -36,7 +46,9 @@ def load_state() -> dict[str, Any]:
     path = _state_path()
 
     if not path.exists():
-        return dict(DEFAULT_STATE)
+        return dict(
+            DEFAULT_STATE
+        )
 
     try:
         data = json.loads(
@@ -48,13 +60,73 @@ def load_state() -> dict[str, Any]:
         OSError,
         json.JSONDecodeError,
     ):
-        return dict(DEFAULT_STATE)
+        return dict(
+            DEFAULT_STATE
+        )
 
-    if not isinstance(data, dict):
-        return dict(DEFAULT_STATE)
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return dict(
+            DEFAULT_STATE
+        )
 
-    state = dict(DEFAULT_STATE)
-    state.update(data)
+    state = dict(
+        DEFAULT_STATE
+    )
+
+    state.update(
+        data
+    )
+
+    if not isinstance(
+        state.get(
+            "contacts"
+        ),
+        list,
+    ):
+        state["contacts"] = []
+
+    if not isinstance(
+        state.get(
+            "contacted_emails"
+        ),
+        list,
+    ):
+        state["contacted_emails"] = []
+
+    if not isinstance(
+        state.get(
+            "contacted_linkedin_urls"
+        ),
+        list,
+    ):
+        state["contacted_linkedin_urls"] = []
+
+    if not isinstance(
+        state.get(
+            "seen_recruiters"
+        ),
+        list,
+    ):
+        state["seen_recruiters"] = []
+
+    if not isinstance(
+        state.get(
+            "statistics"
+        ),
+        dict,
+    ):
+        state["statistics"] = {}
+
+    if not isinstance(
+        state.get(
+            "templates_used"
+        ),
+        dict,
+    ):
+        state["templates_used"] = {}
 
     return state
 
@@ -139,12 +211,24 @@ def mark_recruiter_seen(
         [],
     )
 
+    if not isinstance(
+        seen,
+        list,
+    ):
+        seen = []
+        state["seen_recruiters"] = seen
+
     identifier = str(
         identifier
     ).strip()
 
-    if identifier and identifier not in seen:
-        seen.append(identifier)
+    if (
+        identifier
+        and identifier not in seen
+    ):
+        seen.append(
+            identifier
+        )
 
 
 def has_been_contacted(
@@ -173,6 +257,7 @@ def has_been_contacted(
             "contacted_emails",
             [],
         )
+        if value
     }
 
     contacted_linkedin = {
@@ -181,16 +266,23 @@ def has_been_contacted(
             "contacted_linkedin_urls",
             [],
         )
+        if value
     }
 
-    if email and email in contacted_emails:
-        return True
+    # If an email is now available, an old LinkedIn-only package
+    # should NOT permanently prevent email outreach.
+    #
+    # Email route:
+    if email:
+        return email in contacted_emails
 
-    if (
-        linkedin_url
-        and linkedin_url in contacted_linkedin
-    ):
-        return True
+    # No email:
+    # use LinkedIn URL to avoid sending the same package repeatedly.
+    if linkedin_url:
+        return (
+            linkedin_url
+            in contacted_linkedin
+        )
 
     return False
 
@@ -212,6 +304,7 @@ def record_contact(
     subject: str,
     message_id: str | None,
     status: str,
+    outreach_channel: str = "email",
 ) -> None:
     email = str(
         recruiter.get(
@@ -229,29 +322,50 @@ def record_contact(
         or ""
     ).strip()
 
-    if status == "sent":
-        if email:
+    if status in {
+        "sent",
+        "linkedin_package_sent",
+    }:
+        if (
+            outreach_channel == "email"
+            and email
+        ):
             emails = state.setdefault(
                 "contacted_emails",
                 [],
             )
 
             if email not in emails:
-                emails.append(email)
+                emails.append(
+                    email
+                )
 
-        if linkedin_url:
+        if (
+            outreach_channel
+            == "linkedin"
+            and linkedin_url
+        ):
             urls = state.setdefault(
                 "contacted_linkedin_urls",
                 [],
             )
 
             if linkedin_url not in urls:
-                urls.append(linkedin_url)
+                urls.append(
+                    linkedin_url
+                )
 
     contacts = state.setdefault(
         "contacts",
         [],
     )
+
+    if not isinstance(
+        contacts,
+        list,
+    ):
+        contacts = []
+        state["contacts"] = contacts
 
     contacts.append(
         {
@@ -259,20 +373,32 @@ def record_contact(
                 "name",
                 "",
             ),
+
             "email": email,
+
             "linkedin_url": linkedin_url,
+
             "company": recruiter.get(
                 "company",
                 "",
             ),
+
             "title": recruiter.get(
                 "title",
                 "",
             ),
+
             "template": template,
+
             "subject": subject,
+
             "message_id": message_id,
+
             "status": status,
+
+            "outreach_channel": (
+                outreach_channel
+            ),
         }
     )
 
@@ -305,6 +431,17 @@ def get_cached_jobs(
         [],
     )
 
+    # Handle the old state format:
+    # {"updated_at": ..., "jobs": [...]}
+    if isinstance(
+        jobs,
+        dict,
+    ):
+        jobs = jobs.get(
+            "jobs",
+            [],
+        )
+
     if not isinstance(
         jobs,
         list,
@@ -334,6 +471,6 @@ def set_job_cache(
         )
     ]
 
-    state["job_cache_timestamp"] = __import__(
-        "time"
-    ).time()
+    state["job_cache_timestamp"] = (
+        time.time()
+    )
