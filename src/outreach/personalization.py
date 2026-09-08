@@ -248,13 +248,38 @@ dm_message:
 - Do not use em dashes.
 """
 
+    recruiter_name = str(
+        recruiter.get(
+            "name",
+            "",
+        )
+    ).strip()
+
+    first_name = (
+        recruiter_name.split()[0]
+        if recruiter_name
+        else ""
+    )
+
+    company = str(
+        recruiter.get(
+            "company",
+            "",
+        )
+    ).strip()
+
+    company_phrase = (
+        f" at {company}"
+        if company
+        else ""
+    )
+
     fallback_connection = (
-        f"Hi {str(recruiter.get('name', '')).split()[0] "
-        f"if recruiter.get('name') else ''}, "
+        f"Hi {first_name}, "
         f"I came across your work in AI/ML recruiting"
-        f"{' at ' + recruiter.get('company', '') if recruiter.get('company') else ''}. "
-        f"I'm an AI Engineer focused on LLM, RAG and agent systems and would "
-        f"love to connect."
+        f"{company_phrase}. "
+        f"I'm an AI Engineer focused on LLM, RAG and agent systems "
+        f"and would love to connect."
     ).strip()
 
     fallback_connection = (
@@ -262,10 +287,9 @@ dm_message:
     )
 
     fallback_dm = (
-        f"Hi {str(recruiter.get('name', '')).split()[0] "
-        f"if recruiter.get('name') else 'there'},\n\n"
-        f"I wanted to follow up because your recruiting work "
-        f"{'at ' + recruiter.get('company', '') if recruiter.get('company') else ''} "
+        f"Hi {first_name or 'there'},\n\n"
+        f"I wanted to follow up because your recruiting work"
+        f"{company_phrase} "
         f"looks closely aligned with the kind of AI/ML roles I'm targeting.\n\n"
         f"My strongest work is around production LLM systems, "
         f"RAG pipelines and multi-agent orchestration, including "
