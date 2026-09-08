@@ -39,45 +39,56 @@ TARGET_LOCATIONS = [
 # GitHub Actions runs hourly, so the search rotates through these
 # combinations without making multiple Apify calls in one run.
 RECRUITER_SEARCH_SEGMENTS = [
-    ("Recruiter", "Bengaluru"),
-    ("Recruiter", "Hyderabad"),
-    ("Recruiter", "Mumbai"),
-    ("Recruiter", "Bangalore"),
-    ("Recruiter", "Remote"),
-
     ("Technical Recruiter", "Bengaluru"),
     ("Technical Recruiter", "Hyderabad"),
     ("Technical Recruiter", "Mumbai"),
+    ("Technical Recruiter", "Bangalore"),
 
     ("Engineering Recruiter", "Bengaluru"),
     ("Engineering Recruiter", "Hyderabad"),
     ("Engineering Recruiter", "Mumbai"),
+    ("Engineering Recruiter", "Bangalore"),
 
     ("IT Recruiter", "Bengaluru"),
     ("IT Recruiter", "Hyderabad"),
     ("IT Recruiter", "Mumbai"),
-
-    ("Talent Acquisition", "Bengaluru"),
-    ("Talent Acquisition", "Hyderabad"),
-    ("Talent Acquisition", "Mumbai"),
-
-    ("Talent Acquisition Partner", "Bengaluru"),
-    ("Talent Acquisition Partner", "Hyderabad"),
-    ("Talent Acquisition Partner", "Mumbai"),
+    ("IT Recruiter", "Bangalore"),
 
     ("Technology Recruiter", "Bengaluru"),
     ("Technology Recruiter", "Hyderabad"),
     ("Technology Recruiter", "Mumbai"),
+    ("Technology Recruiter", "Bangalore"),
+
+    ("Talent Acquisition Partner", "Bengaluru"),
+    ("Talent Acquisition Partner", "Hyderabad"),
+    ("Talent Acquisition Partner", "Mumbai"),
+    ("Talent Acquisition Partner", "Bangalore"),
+
+    ("Talent Acquisition Specialist", "Bengaluru"),
+    ("Talent Acquisition Specialist", "Hyderabad"),
+    ("Talent Acquisition Specialist", "Mumbai"),
+    ("Talent Acquisition Specialist", "Bangalore"),
 
     ("Technical Sourcer", "Bengaluru"),
     ("Technical Sourcer", "Hyderabad"),
     ("Technical Sourcer", "Mumbai"),
+    ("Technical Sourcer", "Bangalore"),
 
     ("Talent Sourcer", "Bengaluru"),
     ("Talent Sourcer", "Hyderabad"),
     ("Talent Sourcer", "Mumbai"),
-]
+    ("Talent Sourcer", "Bangalore"),
 
+    ("Recruiting Lead", "Bengaluru"),
+    ("Recruiting Lead", "Hyderabad"),
+    ("Recruiting Lead", "Mumbai"),
+    ("Recruiting Lead", "Bangalore"),
+
+    ("Talent Partner", "Bengaluru"),
+    ("Talent Partner", "Hyderabad"),
+    ("Talent Partner", "Mumbai"),
+    ("Talent Partner", "Bangalore"),
+]
 
 RECRUITER_TITLE_KEYWORDS = {
     "recruiter",
