@@ -26,6 +26,7 @@ from discovery.enrichment import (
 from discovery.recruiters import (
     RECRUITER_SEARCH_SEGMENTS,
     deduplicate_recruiters,
+    matches_target_location,
     normalize_recruiter,
     search_recruiters,
 )
@@ -254,7 +255,13 @@ def discover_recruiters(
     raw = search_recruiters(
         profile,
         max_results=25,
-        search_location=search_location,
+    )
+
+    print(
+        f"Apify results: {len(raw)}"
+    )
+    print(
+        f"Target location: {search_location}"
     )
 
     recruiters = []
@@ -268,14 +275,22 @@ def discover_recruiters(
             recruiter
         )
 
-        mark_recruiter_seen(
-            state,
-            recruiter,
-        )
+        if matches_target_location(
+            recruiter.get("location", ""),
+            search_location,
+        ):
+            mark_recruiter_seen(
+                state,
+                recruiter,
+            )
 
-        recruiters.append(
-            recruiter
-        )
+            recruiters.append(
+                recruiter
+            )
+
+    print(
+        f"Profiles after local location filter: {len(recruiters)}"
+    )
 
     recruiters = deduplicate_recruiters(
         recruiters

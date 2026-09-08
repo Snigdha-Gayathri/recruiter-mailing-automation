@@ -41,12 +41,8 @@ TARGET_LOCATIONS = [
 #
 # GitHub Actions runs hourly, so the location rotates over time.
 #
-# Each segment sends ALL recruiter titles via the actor's
-# currentJobTitles filter (a proper LinkedIn filter), combined
-# with a single target location.
-#
-# This replaces the old 44-segment searchQuery approach that
-# was returning zero results.
+# The rotating location is applied as a local post-filter
+# on the normalized recruiter profiles returned by Apify.
 RECRUITER_SEARCH_SEGMENTS = [
     "Bengaluru",
     "Hyderabad",
@@ -388,6 +384,31 @@ def deduplicate_recruiters(
     return result
 
 
+def matches_target_location(
+    recruiter_location: str,
+    target_location: str,
+) -> bool:
+    """
+    Check if a recruiter's normalized location matches the target city.
+
+    Tolerant of common variations (e.g. 'Hyderabad, Telangana, India',
+    'Bengaluru, Karnataka, India' matching 'Bangalore', etc.).
+    """
+    loc = str(recruiter_location or "").strip().lower()
+    target = str(target_location or "").strip().lower()
+
+    if not target:
+        return True
+
+    if not loc:
+        return False
+
+    if target in ("bengaluru", "bangalore"):
+        return "bengaluru" in loc or "bangalore" in loc
+
+    return target in loc
+
+
 def score_recruiter(
     profile: dict[str, Any],
 ) -> dict[str, Any]:
@@ -720,22 +741,17 @@ def search_recruiters(
     Perform exactly one Apify recruiter search.
 
     Uses the actor's currentJobTitles filter (a proper
-    LinkedIn filter) with ALL recruiter titles, combined
-    with a single target location.
+    LinkedIn filter) with ALL recruiter titles.
 
     One workflow run therefore means one Apify actor call.
     """
 
     del candidate_profile
+    del search_location
 
     actor_id = os.getenv(
         "APIFY_RECRUITER_ACTOR",
         DEFAULT_ACTOR_ID,
-    )
-
-    location = (
-        search_location
-        or "Bengaluru"
     )
 
     actor_input = {
@@ -745,10 +761,6 @@ def search_recruiters(
 
         "currentJobTitles":
             RECRUITER_SEARCH_QUERIES,
-
-        "locations": [
-            location
-        ],
 
         "maxItems": max_results,
 
@@ -763,16 +775,12 @@ def search_recruiters(
 
     print(
         "Recruiter discovery mode: "
-        "currentJobTitles + location"
+        "currentJobTitles"
     )
 
     print(
         "Recruiter titles: "
         f"{len(RECRUITER_SEARCH_QUERIES)}"
-    )
-
-    print(
-        f"Recruiter location: {location}"
     )
 
     print(
