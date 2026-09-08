@@ -89,6 +89,7 @@ def build_fallback_personalization(
             f"{title or 'a recruiter'}"
             f"{' at ' + company if company else ''}."
         )
+
     else:
         opening = (
             "I came across your profile while researching "
@@ -333,7 +334,7 @@ dm_message:
             if connection_note and dm_message:
                 return {
                     "connection_note": (
-                        connection_note[:300]
+                        connection_note[:280]
                     ),
                     "dm_message": dm_message,
                 }
