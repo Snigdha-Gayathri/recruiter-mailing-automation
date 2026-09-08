@@ -759,8 +759,7 @@ def search_recruiters(
             "Full + email search"
         ),
 
-        "currentJobTitles":
-            RECRUITER_SEARCH_QUERIES,
+        "searchQuery": '"Recruiter"',
 
         "maxItems": max_results,
 
@@ -775,12 +774,11 @@ def search_recruiters(
 
     print(
         "Recruiter discovery mode: "
-        "currentJobTitles"
+        "searchQuery"
     )
 
     print(
-        "Recruiter titles: "
-        f"{len(RECRUITER_SEARCH_QUERIES)}"
+        'Search query: "Recruiter"'
     )
 
     print(
