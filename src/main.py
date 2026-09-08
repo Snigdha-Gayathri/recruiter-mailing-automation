@@ -147,7 +147,6 @@ def load_search_state() -> dict:
                 0,
             )
         ),
-
         "runs": int(
             data.get(
                 "runs",
@@ -252,15 +251,16 @@ def discover_recruiters(
         "Max recruiter records: 25"
     )
 
+    # Consume the single-call budget BEFORE calling Apify.
+    consume_apify_call(
+        state
+    )
+
     raw = search_recruiters(
         profile,
         max_results=25,
         search_query=search_query,
         search_location=search_location,
-    )
-
-    consume_apify_call(
-        state
     )
 
     recruiters = []
