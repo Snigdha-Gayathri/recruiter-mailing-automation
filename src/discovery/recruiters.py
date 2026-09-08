@@ -12,16 +12,17 @@ DEFAULT_ACTOR_ID = "harvestapi/linkedin-profile-search"
 
 
 RECRUITER_SEARCH_QUERIES = [
-    "Recruiter",
     "Technical Recruiter",
     "Engineering Recruiter",
     "IT Recruiter",
-    "Talent Acquisition",
+    "Technology Recruiter",
+    "Tech Recruiter",
     "Talent Acquisition Partner",
     "Talent Acquisition Specialist",
-    "Technology Recruiter",
     "Technical Sourcer",
     "Talent Sourcer",
+    "Recruiting Lead",
+    "Talent Partner",
 ]
 
 
@@ -30,14 +31,17 @@ TARGET_LOCATIONS = [
     "Hyderabad",
     "Mumbai",
     "Bangalore",
-    "Remote",
 ]
 
 
-# IMPORTANT:
-# We deliberately use ONE segment per run.
-# GitHub Actions runs hourly, so the search rotates through these
-# combinations without making multiple Apify calls in one run.
+# Exactly ONE segment is searched per workflow run.
+#
+# GitHub Actions runs hourly, so the combination rotates over time.
+#
+# We deliberately use fuzzy searchQuery + location because that is
+# the search mode that previously returned actual recruiter profiles.
+#
+# We do NOT use currentJobTitles here.
 RECRUITER_SEARCH_SEGMENTS = [
     ("Technical Recruiter", "Bengaluru"),
     ("Technical Recruiter", "Hyderabad"),
@@ -58,6 +62,11 @@ RECRUITER_SEARCH_SEGMENTS = [
     ("Technology Recruiter", "Hyderabad"),
     ("Technology Recruiter", "Mumbai"),
     ("Technology Recruiter", "Bangalore"),
+
+    ("Tech Recruiter", "Bengaluru"),
+    ("Tech Recruiter", "Hyderabad"),
+    ("Tech Recruiter", "Mumbai"),
+    ("Tech Recruiter", "Bangalore"),
 
     ("Talent Acquisition Partner", "Bengaluru"),
     ("Talent Acquisition Partner", "Hyderabad"),
@@ -89,6 +98,7 @@ RECRUITER_SEARCH_SEGMENTS = [
     ("Talent Partner", "Mumbai"),
     ("Talent Partner", "Bangalore"),
 ]
+
 
 RECRUITER_TITLE_KEYWORDS = {
     "recruiter",
@@ -418,7 +428,6 @@ def deduplicate_recruiters(
             continue
 
         seen.add(key)
-
         result.append(recruiter)
 
     return result
@@ -574,7 +583,9 @@ def is_qualified_recruiter(
     profile: dict[str, Any],
     minimum_score: float = 45.0,
 ) -> bool:
-    result = score_recruiter(profile)
+    result = score_recruiter(
+        profile
+    )
 
     if result["score"] < minimum_score:
         return False
@@ -616,10 +627,10 @@ def is_qualified_recruiter(
     ):
         return False
 
-    # NO EMAIL REQUIREMENT HERE.
+    # Email is NOT required.
     #
-    # A recruiter without a public email is still a valid recruiter.
-    # They are routed to the LinkedIn connection + DM package path.
+    # Recruiters without an email are routed to the
+    # LinkedIn connection + DM package workflow.
     return True
 
 
@@ -751,6 +762,21 @@ def search_recruiters(
     search_query: str | None = None,
     search_location: str | None = None,
 ) -> list[dict[str, Any]]:
+    """
+    Perform exactly one Apify recruiter search.
+
+    The important part is that this uses:
+
+        searchQuery
+        locations
+
+    and does NOT use currentJobTitles.
+
+    One workflow run therefore means one Apify actor call.
+    """
+
+    del candidate_profile
+
     actor_id = os.getenv(
         "APIFY_RECRUITER_ACTOR",
         DEFAULT_ACTOR_ID,
@@ -758,7 +784,7 @@ def search_recruiters(
 
     query = (
         search_query
-        or "Recruiter"
+        or "Technical Recruiter"
     )
 
     location = (
@@ -771,11 +797,6 @@ def search_recruiters(
             "Full + email search"
         ),
 
-        # IMPORTANT:
-        # Use the fuzzy search query that previously returned
-        # real recruiter profiles.
-        #
-        # Do NOT combine this with currentJobTitles.
         "searchQuery": query,
 
         "locations": [
@@ -810,7 +831,9 @@ def search_recruiters(
         "Apify input:"
     )
 
-    print(actor_input)
+    print(
+        actor_input
+    )
 
     results = _run_apify_actor(
         actor_id=actor_id,
