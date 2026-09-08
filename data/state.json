@@ -3,10 +3,11 @@
   "contacted_linkedin_urls": [],
   "seen_recruiters": [],
   "templates_used": {},
-  "runs": 24,
+  "runs": 25,
   "emails_sent": 0,
   "emails_failed": 0,
-  "apify_calls": 24,
+  "linkedin_packages_sent": 0,
+  "apify_calls": 25,
   "discovered": 0,
   "qualified": 0,
   "job_cache": {
@@ -19,11 +20,11 @@
     "qualified": 0,
     "emails_sent": 0,
     "emails_failed": 0,
-    "apify_calls": 27
+    "apify_calls": 28
   },
+  "contacts": [],
   "version": 1,
   "created_at": null,
   "updated_at": "2026-08-24T17:08:08.514128+00:00",
-  "contacts": {},
   "outreach": []
 }
