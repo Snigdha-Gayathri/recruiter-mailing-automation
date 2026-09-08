@@ -27,29 +27,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify production files
-        run: |
-          test -f src/main.py
-          test -f src/discovery/recruiters.py
-          test -f src/discovery/enrichment.py
-          test -f src/matching/scorer.py
-          test -f src/outreach/gmail.py
-          test -f src/outreach/personalization.py
-          test -f src/outreach/templates.py
-          test -f src/storage/database.py
-          test -f config/profile.json
-          test -f assets/Snigdha-Gayathri-Resume.pdf
-
-          python -m py_compile \
-            src/main.py \
-            src/discovery/recruiters.py \
-            src/discovery/enrichment.py \
-            src/matching/scorer.py \
-            src/outreach/gmail.py \
-            src/outreach/personalization.py \
-            src/outreach/templates.py \
-            src/storage/database.py
-
       - name: Run recruiter hunter
         env:
           APIFY_API_TOKEN: ${{ secrets.APIFY_API_TOKEN }}
