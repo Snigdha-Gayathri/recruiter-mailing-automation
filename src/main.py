@@ -215,7 +215,7 @@ def discover_recruiters(
         )
     )
 
-    search_query, search_location = (
+    search_location = (
         RECRUITER_SEARCH_SEGMENTS[
             segment_index
         ]
@@ -238,11 +238,6 @@ def discover_recruiters(
     )
 
     print(
-        f"Search query: "
-        f"{search_query}"
-    )
-
-    print(
         f"Search location: "
         f"{search_location}"
     )
@@ -259,7 +254,6 @@ def discover_recruiters(
     raw = search_recruiters(
         profile,
         max_results=25,
-        search_query=search_query,
         search_location=search_location,
     )
 

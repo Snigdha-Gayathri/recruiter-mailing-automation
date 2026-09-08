@@ -12,7 +12,10 @@ DEFAULT_ACTOR_ID = "harvestapi/linkedin-profile-search"
 
 
 RECRUITER_SEARCH_QUERIES = [
+    "Recruiter",
     "Technical Recruiter",
+    "Senior Technical Recruiter",
+    "Lead Technical Recruiter",
     "Engineering Recruiter",
     "IT Recruiter",
     "Technology Recruiter",
@@ -36,67 +39,19 @@ TARGET_LOCATIONS = [
 
 # Exactly ONE segment is searched per workflow run.
 #
-# GitHub Actions runs hourly, so the combination rotates over time.
+# GitHub Actions runs hourly, so the location rotates over time.
 #
-# We deliberately use fuzzy searchQuery + location because that is
-# the search mode that previously returned actual recruiter profiles.
+# Each segment sends ALL recruiter titles via the actor's
+# currentJobTitles filter (a proper LinkedIn filter), combined
+# with a single target location.
 #
-# We do NOT use currentJobTitles here.
+# This replaces the old 44-segment searchQuery approach that
+# was returning zero results.
 RECRUITER_SEARCH_SEGMENTS = [
-    ("Technical Recruiter", "Bengaluru"),
-    ("Technical Recruiter", "Hyderabad"),
-    ("Technical Recruiter", "Mumbai"),
-    ("Technical Recruiter", "Bangalore"),
-
-    ("Engineering Recruiter", "Bengaluru"),
-    ("Engineering Recruiter", "Hyderabad"),
-    ("Engineering Recruiter", "Mumbai"),
-    ("Engineering Recruiter", "Bangalore"),
-
-    ("IT Recruiter", "Bengaluru"),
-    ("IT Recruiter", "Hyderabad"),
-    ("IT Recruiter", "Mumbai"),
-    ("IT Recruiter", "Bangalore"),
-
-    ("Technology Recruiter", "Bengaluru"),
-    ("Technology Recruiter", "Hyderabad"),
-    ("Technology Recruiter", "Mumbai"),
-    ("Technology Recruiter", "Bangalore"),
-
-    ("Tech Recruiter", "Bengaluru"),
-    ("Tech Recruiter", "Hyderabad"),
-    ("Tech Recruiter", "Mumbai"),
-    ("Tech Recruiter", "Bangalore"),
-
-    ("Talent Acquisition Partner", "Bengaluru"),
-    ("Talent Acquisition Partner", "Hyderabad"),
-    ("Talent Acquisition Partner", "Mumbai"),
-    ("Talent Acquisition Partner", "Bangalore"),
-
-    ("Talent Acquisition Specialist", "Bengaluru"),
-    ("Talent Acquisition Specialist", "Hyderabad"),
-    ("Talent Acquisition Specialist", "Mumbai"),
-    ("Talent Acquisition Specialist", "Bangalore"),
-
-    ("Technical Sourcer", "Bengaluru"),
-    ("Technical Sourcer", "Hyderabad"),
-    ("Technical Sourcer", "Mumbai"),
-    ("Technical Sourcer", "Bangalore"),
-
-    ("Talent Sourcer", "Bengaluru"),
-    ("Talent Sourcer", "Hyderabad"),
-    ("Talent Sourcer", "Mumbai"),
-    ("Talent Sourcer", "Bangalore"),
-
-    ("Recruiting Lead", "Bengaluru"),
-    ("Recruiting Lead", "Hyderabad"),
-    ("Recruiting Lead", "Mumbai"),
-    ("Recruiting Lead", "Bangalore"),
-
-    ("Talent Partner", "Bengaluru"),
-    ("Talent Partner", "Hyderabad"),
-    ("Talent Partner", "Mumbai"),
-    ("Talent Partner", "Bangalore"),
+    "Bengaluru",
+    "Hyderabad",
+    "Mumbai",
+    "Bangalore",
 ]
 
 
@@ -759,18 +714,14 @@ def _run_apify_actor(
 def search_recruiters(
     candidate_profile: dict[str, Any],
     max_results: int = 25,
-    search_query: str | None = None,
     search_location: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Perform exactly one Apify recruiter search.
 
-    The important part is that this uses:
-
-        searchQuery
-        locations
-
-    and does NOT use currentJobTitles.
+    Uses the actor's currentJobTitles filter (a proper
+    LinkedIn filter) with ALL recruiter titles, combined
+    with a single target location.
 
     One workflow run therefore means one Apify actor call.
     """
@@ -780,11 +731,6 @@ def search_recruiters(
     actor_id = os.getenv(
         "APIFY_RECRUITER_ACTOR",
         DEFAULT_ACTOR_ID,
-    )
-
-    query = (
-        search_query
-        or "Technical Recruiter"
     )
 
     location = (
@@ -797,7 +743,8 @@ def search_recruiters(
             "Full + email search"
         ),
 
-        "searchQuery": query,
+        "currentJobTitles":
+            RECRUITER_SEARCH_QUERIES,
 
         "locations": [
             location
@@ -816,11 +763,12 @@ def search_recruiters(
 
     print(
         "Recruiter discovery mode: "
-        "searchQuery + location"
+        "currentJobTitles + location"
     )
 
     print(
-        f"Recruiter query: {query}"
+        "Recruiter titles: "
+        f"{len(RECRUITER_SEARCH_QUERIES)}"
     )
 
     print(
