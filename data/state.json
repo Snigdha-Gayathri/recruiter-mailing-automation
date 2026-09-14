@@ -3,11 +3,11 @@
   "contacted_linkedin_urls": [],
   "seen_recruiters": [],
   "templates_used": {},
-  "runs": 69,
+  "runs": 70,
   "emails_sent": 0,
   "emails_failed": 0,
   "linkedin_packages_sent": 0,
-  "apify_calls": 69,
+  "apify_calls": 70,
   "discovered": 0,
   "qualified": 0,
   "job_cache": {
@@ -20,7 +20,7 @@
     "qualified": 0,
     "emails_sent": 0,
     "emails_failed": 0,
-    "apify_calls": 72
+    "apify_calls": 73
   },
   "contacts": [],
   "version": 1,
